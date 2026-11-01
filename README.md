@@ -13,7 +13,7 @@ Certifique-se de possuir instalado:
 ### 2. Clonar o repositório
 
 ```bash
-git clone https://github.com/SEU-USUARIO/TransitGraph.git
+git clone https://github.com/MatheusLeonardi/TransitGraph.git
 ```
 
 Entre na pasta:
