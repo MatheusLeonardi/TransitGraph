@@ -1,0 +1,249 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TransitGraph | Análise de Transporte</title>
+
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">TG</div>
+            <div>
+                <h1>TransitGraph</h1>
+                <span>ANÁLISE DE CONECTIVIDADE</span>
+            </div>
+        </div>
+
+        <div class="side-section">
+            <span class="section-label">VISÃO GERAL</span>
+            <div class="nav-item active"> <span>▦</span> Dashboard</div>
+            <div class="nav-item"><span>⌖</span> Mapa da rede</div>
+            <div class="nav-item"><span>⌘</span> Algoritmos</div>
+            <div class="nav-item"><span>◈</span> Conectividade</div>
+        </div>
+
+        <div class="sidebar-footer">
+            <span class="status-dot"></span>
+            Sistema conectado
+            <small>Dados GTFS · SPTrans</small>
+        </div>
+    </aside>
+
+    <main class="main-content">
+
+        <header class="topbar">
+            <div>
+                <h2>Dashboard</h2>
+                <p>Análise topológica da rede de ônibus de São Paulo</p>
+            </div>
+
+            <div class="topbar-right">
+                <span class="live-status">
+                    <span class="status-dot"></span>
+                    API ONLINE
+                </span>
+            </div>
+        </header>
+
+        <section class="stats-grid">
+
+            <article class="stat-card">
+                <span>PARADAS</span>
+                <strong id="total-stops">--</strong>
+                <small>Vértices do grafo</small>
+            </article>
+
+            <article class="stat-card">
+                <span>CONEXÕES</span>
+                <strong id="total-edges">--</strong>
+                <small>Arestas direcionadas</small>
+            </article>
+
+            <article class="stat-card">
+                <span>LINHAS NAS CONEXÕES</span>
+                <strong id="total-routes">--</strong>
+                <small>Associações entre linhas e arestas</small>
+            </article>
+
+            <article class="stat-card">
+                <span>COMPONENTES</span>
+                <strong id="total-components">--</strong>
+                <small>Componentes fracamente conexos</small>
+            </article>
+
+        </section>
+
+        <section class="content-grid">
+
+            <div class="panel map-panel">
+
+                <div class="panel-header">
+                    <div>
+                        <h3>Mapa da rede</h3>
+                        <p>Localização geográfica das paradas de ônibus</p>
+                    </div>
+
+                    <span class="map-tag">SPTRANS</span>
+                </div>
+
+                <div id="map"></div>
+
+                <div class="map-footer">
+                    <span><i class="legend-stop"></i> Paradas de ônibus</span>
+                    <span id="map-count">Carregando paradas...</span>
+                </div>
+
+            </div>
+
+            <div class="right-column">
+
+                <section class="panel search-panel">
+
+                    <div class="panel-header">
+                        <div>
+                            <h3>Pesquisar paradas</h3>
+                            <p>Busque por nome ou código</p>
+                        </div>
+                    </div>
+
+                    <div class="search-box">
+                        <input
+                            type="text"
+                            id="search-input"
+                            placeholder="Ex.: Terminal Jardim Britânia"
+                        >
+                        <button id="search-button">Buscar</button>
+                    </div>
+
+                    <div id="search-results" class="search-results">
+                        <span class="empty-message">
+                            Digite um nome ou código para pesquisar.
+                        </span>
+                    </div>
+
+                </section>
+
+                <section class="panel algorithm-panel">
+
+                    <div class="panel-header">
+                        <div>
+                            <h3>Executar algoritmos</h3>
+                            <p>Exploração e busca no grafo</p>
+                        </div>
+                    </div>
+
+                    <label for="origin">Parada de origem</label>
+                    <input id="origin" type="text" placeholder="Código da parada">
+
+                    <label for="destination">Parada de destino</label>
+                    <input id="destination" type="text" placeholder="Código da parada">
+
+                    <div class="algorithm-buttons">
+                        <button id="bfs-button" class="primary-button">
+                            Executar BFS
+                        </button>
+
+                        <button id="dfs-button" class="secondary-button">
+                            Executar DFS
+                        </button>
+                    </div>
+
+                    <div id="algorithm-result" class="result-box">
+                        Selecione as paradas e execute um algoritmo.
+                    </div>
+
+                </section>
+
+            </div>
+
+        </section>
+
+        
+<section class="panel graph-panel">
+
+    <div class="panel-header">
+        <div>
+            <h3>Grafo interativo</h3>
+            <p>Explore as conexões direcionadas entre as paradas</p>
+        </div>
+
+        <span class="map-tag">CYTOSCAPE.JS</span>
+    </div>
+
+    <div class="graph-controls">
+        <input
+            type="text"
+            id="graph-stop-input"
+            placeholder="Código da parada (ex.: 301790)"
+        >
+
+        <select id="graph-depth">
+          <option value="1">1 nível</option>
+          <option value="2">2 níveis</option>
+          <option value="3">3 níveis</option>
+          <option value="4">4 níveis</option>
+          <option value="5">5 níveis</option>
+          <option value="6">6 níveis</option>
+          <option value="7">7 níveis</option>
+          <option value="8">8 níveis</option>
+          <option value="9">9 níveis</option>
+          <option value="10" selected>10 níveis</option>
+        </select>
+
+        <button id="load-graph-button" class="primary-button">
+            Explorar grafo
+        </button>
+    </div>
+
+    <div id="graph-info" class="graph-info">
+        Informe uma parada para visualizar suas conexões.
+    </div>
+
+    <div id="cy"></div>
+
+    <div class="graph-legend">
+        <span><i class="legend-origin"></i> Parada de origem</span>
+        <span><i class="legend-node"></i> Outras paradas</span>
+        <span><i class="legend-edge"></i> Sentido da conexão</span>
+    </div>
+
+</section>
+
+
+        <section class="panel connectivity-panel">
+
+            <div class="panel-header">
+                <div>
+                    <h3>Análise de conectividade</h3>
+                    <p>Distribuição dos componentes fracamente conexos</p>
+                </div>
+            </div>
+
+            <div id="connectivity-info" class="connectivity-info">
+                Carregando informações...
+            </div>
+
+        </section>
+
+        <footer>
+            TransitGraph · Projeto acadêmico de Teoria dos Grafos
+        </footer>
+
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+</body>
+</html>
