@@ -74,20 +74,6 @@ def save_graph(graph, db_path, metadata=None):
                 value TEXT NOT NULL
             );
 
-            CREATE TABLE IF NOT EXISTS road_geometry_cache (
-                cache_key TEXT PRIMARY KEY,
-                geometry BLOB NOT NULL,
-                confidence REAL NOT NULL,
-                original_distance REAL NOT NULL,
-                matched_distance REAL NOT NULL,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS road_geometry_rejections (
-                cache_key TEXT PRIMARY KEY,
-                reason TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
         """)
 
         # Apagar os dados anteriores
@@ -98,8 +84,10 @@ def save_graph(graph, db_path, metadata=None):
         connection.execute("DELETE FROM stops")
         connection.execute("DELETE FROM routes")
         connection.execute("DELETE FROM build_metadata")
-        connection.execute("DELETE FROM road_geometry_cache")
-        connection.execute("DELETE FROM road_geometry_rejections")
+        # Bancos antigos podem conter o cache viário. Ele agora fica em
+        # data/runtime/road_cache.db e não deve fazer parte do grafo versionado.
+        connection.execute("DROP TABLE IF EXISTS road_geometry_cache")
+        connection.execute("DROP TABLE IF EXISTS road_geometry_rejections")
 
         # Salvar paradas
         stop_rows = []

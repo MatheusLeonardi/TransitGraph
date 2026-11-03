@@ -6,6 +6,7 @@ import sqlite3
 import urllib.error
 import urllib.request
 import zlib
+from pathlib import Path
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ MIN_LENGTH_RATIO = 0.65
 MAX_LENGTH_RATIO = 1.8
 MAX_ITINERARY_STOPS = 120
 MAX_ITINERARY_LEGS = 20
+ROAD_CACHE_ENV = "TRANSITGRAPH_ROAD_CACHE_DB"
 
 
 def _distance_meters(first, second):
@@ -95,6 +97,30 @@ def _cache_key(geometry):
     ]
     content = json.dumps(normalized, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(content).hexdigest()
+
+
+def _cache_database_path(database_path):
+    """Retorna um banco de cache separado do banco versionado do grafo."""
+    configured_path = os.getenv(ROAD_CACHE_ENV)
+    if configured_path:
+        return Path(configured_path)
+
+    database_path = Path(database_path)
+
+    # Na aplicação, mantém o cache em data/runtime/road_cache.db.
+    if database_path.name == "transitgraph.db":
+        return database_path.parent.parent / "runtime" / "road_cache.db"
+
+    # Em testes e bancos temporários, preserva o isolamento no mesmo diretório.
+    return database_path.with_name(
+        f"{database_path.stem}_road_cache{database_path.suffix}"
+    )
+
+
+def _open_cache_connection(database_path):
+    cache_path = _cache_database_path(database_path)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    return sqlite3.connect(cache_path)
 
 
 def _ensure_cache_table(connection):
@@ -290,7 +316,7 @@ def refine_itinerary_geometry(itinerary, database_path):
 
     candidates = []
 
-    with sqlite3.connect(database_path) as connection:
+    with _open_cache_connection(database_path) as connection:
         _ensure_cache_table(connection)
 
         for index, leg in enumerate(itinerary["legs"]):
@@ -348,7 +374,7 @@ def refine_itinerary_geometry(itinerary, database_path):
                     rejections[index] = (key, result.get("reason"))
 
         if results or rejections:
-            with sqlite3.connect(database_path) as connection:
+            with _open_cache_connection(database_path) as connection:
                 _ensure_cache_table(connection)
 
                 for index, (key, original, result) in results.items():
@@ -373,7 +399,8 @@ def refine_itinerary_geometry(itinerary, database_path):
 
                 connection.commit()
 
-            itinerary["uses_road_matching"] = True
+            if results:
+                itinerary["uses_road_matching"] = True
 
     itinerary["road_matching_status"] = (
         "applied" if itinerary["uses_road_matching"] else "fallback-gtfs"

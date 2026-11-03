@@ -205,6 +205,8 @@ run.py               # inicialização da aplicação
 - o modelo atual não inclui trânsito, horários em tempo real ou caminhada;
 - o refinamento viário público depende da disponibilidade do OSRM, mantendo
   fallback integral para o GTFS;
+- o cache do refinamento viário fica em `data/runtime/road_cache.db`, separado
+  do banco versionado do grafo;
 - componentes fracos ignoram a direção das arestas durante essa análise;
 - a interface limita a ordem exibida às primeiras 200 visitas para manter a
   resposta legível, preservando o total processado.

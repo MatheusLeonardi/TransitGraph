@@ -1,3 +1,5 @@
+import sqlite3
+
 from backend.services import road_matching_service
 
 
@@ -95,3 +97,50 @@ def test_refinement_is_cached(monkeypatch, tmp_path):
     )
 
     assert second["legs"][0]["geometry_source"] == "osrm-cache"
+
+    cache_database = tmp_path / "cache_road_cache.db"
+    assert cache_database.exists()
+
+    with sqlite3.connect(database) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+
+    assert "road_geometry_cache" not in tables
+    assert "road_geometry_rejections" not in tables
+
+
+def test_rejected_match_keeps_gtfs_fallback(monkeypatch, tmp_path):
+    database = tmp_path / "rejection.db"
+    itinerary = {
+        "uses_gtfs_shapes": True,
+        "legs": [{
+            "stops": ["A", "B"],
+            "geometry": [
+                [-23.5297, -46.5516],
+                [-23.5280, -46.5520],
+                [-23.5266, -46.5517]
+            ]
+        }]
+    }
+
+    monkeypatch.setattr(
+        road_matching_service,
+        "_request_osrm_match",
+        lambda geometry, osrm_url: {
+            "accepted": False,
+            "reason": "incoherent-match"
+        }
+    )
+
+    result = road_matching_service.refine_itinerary_geometry(
+        itinerary,
+        database
+    )
+
+    assert result["uses_road_matching"] is False
+    assert result["road_matching_status"] == "fallback-gtfs"
+    assert result["legs"][0]["geometry_source"] == "gtfs-coherence-fallback"
