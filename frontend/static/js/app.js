@@ -649,6 +649,62 @@ async function compareAlgorithms() {
 // EVENTOS
 // --------------------------------------------------
 
+function initializeSectionNavigation() {
+    const items = Array.from(
+        document.querySelectorAll("[data-nav-target]")
+    );
+
+    const sections = items
+        .map(item => document.getElementById(item.dataset.navTarget))
+        .filter(Boolean);
+
+    function setActive(targetId) {
+        items.forEach(item => {
+            const isActive = item.dataset.navTarget === targetId;
+            item.classList.toggle("active", isActive);
+
+            if (isActive) {
+                item.setAttribute("aria-current", "page");
+            } else {
+                item.removeAttribute("aria-current");
+            }
+        });
+    }
+
+    items.forEach(item => {
+        item.addEventListener("click", event => {
+            const target = document.getElementById(item.dataset.navTarget);
+            if (!target) return;
+
+            event.preventDefault();
+            setActive(item.dataset.navTarget);
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+            history.replaceState(null, "", item.getAttribute("href"));
+        });
+    });
+
+    if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver(entries => {
+            const visible = entries
+                .filter(entry => entry.isIntersecting)
+                .sort((first, second) =>
+                    second.intersectionRatio - first.intersectionRatio
+                );
+
+            if (visible.length > 0) {
+                setActive(visible[0].target.id);
+            }
+        }, {
+            rootMargin: "-18% 0px -62% 0px",
+            threshold: [0.1, 0.25, 0.5]
+        });
+
+        sections.forEach(section => observer.observe(section));
+    }
+}
+
+initializeSectionNavigation();
+
 document.getElementById("search-button")
     .addEventListener("click", searchStops);
 

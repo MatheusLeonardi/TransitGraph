@@ -62,20 +62,38 @@ body {
 }
 
 .nav-item {
+    display: flex;
+    align-items: center;
     padding: 13px 12px;
     margin-top: 8px;
     border-radius: 8px;
     color: #b8c3d5;
     font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
 }
 
-.nav-item span {
+.nav-item > .nav-icon {
+    width: 18px;
     margin-right: 10px;
+    text-align: center;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible {
+    background: #1a3154;
+    color: white;
+    outline: none;
 }
 
 .nav-item.active {
     background: #203b66;
     color: white;
+}
+
+[id] {
+    scroll-margin-top: 24px;
 }
 
 .sidebar-footer {

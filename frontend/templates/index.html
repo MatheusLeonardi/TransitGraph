@@ -24,13 +24,25 @@
             </div>
         </div>
 
-        <div class="side-section">
+        <nav class="side-section" aria-label="Navegação principal">
             <span class="section-label">VISÃO GERAL</span>
-            <div class="nav-item active"> <span>▦</span> Dashboard</div>
-            <div class="nav-item"><span>⌖</span> Mapa da rede</div>
-            <div class="nav-item"><span>⌘</span> Algoritmos</div>
-            <div class="nav-item"><span>◈</span> Conectividade</div>
-        </div>
+            <a class="nav-item active" href="#dashboard-section" data-nav-target="dashboard-section" aria-current="page">
+                <span class="nav-icon" aria-hidden="true">▦</span>
+                <span>Dashboard</span>
+            </a>
+            <a class="nav-item" href="#map-section" data-nav-target="map-section">
+                <span class="nav-icon" aria-hidden="true">⌖</span>
+                <span>Mapa da rede</span>
+            </a>
+            <a class="nav-item" href="#algorithms-section" data-nav-target="algorithms-section">
+                <span class="nav-icon" aria-hidden="true">⌘</span>
+                <span>Algoritmos</span>
+            </a>
+            <a class="nav-item" href="#connectivity-section" data-nav-target="connectivity-section">
+                <span class="nav-icon" aria-hidden="true">◈</span>
+                <span>Conectividade</span>
+            </a>
+        </nav>
 
         <div class="sidebar-footer">
             <span class="status-dot"></span>
@@ -41,7 +53,7 @@
 
     <main class="main-content">
 
-        <header class="topbar">
+        <header class="topbar" id="dashboard-section">
             <div>
                 <h2>Dashboard</h2>
                 <p>Análise topológica da rede de ônibus de São Paulo</p>
@@ -86,7 +98,7 @@
 
         <section class="content-grid">
 
-            <div class="panel map-panel">
+            <div class="panel map-panel" id="map-section">
 
                 <div class="panel-header">
                     <div>
@@ -134,7 +146,7 @@
 
                 </section>
 
-                <section class="panel algorithm-panel">
+                <section class="panel algorithm-panel" id="algorithms-section">
 
                     <div class="panel-header">
                         <div>
@@ -237,7 +249,7 @@
 </section>
 
 
-        <section class="panel connectivity-panel">
+        <section class="panel connectivity-panel" id="connectivity-section">
 
             <div class="panel-header">
                 <div>
