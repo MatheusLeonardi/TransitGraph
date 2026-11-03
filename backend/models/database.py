@@ -1,11 +1,13 @@
 
+import json
 import sqlite3
+import zlib
 from pathlib import Path
 
 from backend.algorithms.graph import Graph
 
 
-def save_graph(graph, db_path):
+def save_graph(graph, db_path, metadata=None):
     """
     Salva vértices, arestas e linhas associadas ao SQLite.
     Substitui os dados anteriores do grafo.
@@ -41,12 +43,63 @@ def save_graph(graph, db_path):
                 FOREIGN KEY (source, target)
                     REFERENCES edges(source, target)
             );
+
+            CREATE TABLE IF NOT EXISTS routes (
+                route_id TEXT PRIMARY KEY,
+                short_name TEXT,
+                long_name TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS shapes (
+                shape_id TEXT PRIMARY KEY,
+                points BLOB NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS edge_shapes (
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                trip_id TEXT NOT NULL,
+                shape_id TEXT NOT NULL,
+                from_sequence INTEGER NOT NULL,
+                to_sequence INTEGER NOT NULL,
+                headsign TEXT,
+                PRIMARY KEY (source, target, route_id),
+                FOREIGN KEY (source, target, route_id)
+                    REFERENCES edge_routes(source, target, route_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS build_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS road_geometry_cache (
+                cache_key TEXT PRIMARY KEY,
+                geometry BLOB NOT NULL,
+                confidence REAL NOT NULL,
+                original_distance REAL NOT NULL,
+                matched_distance REAL NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS road_geometry_rejections (
+                cache_key TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
         """)
 
         # Apagar os dados anteriores
+        connection.execute("DELETE FROM edge_shapes")
+        connection.execute("DELETE FROM shapes")
         connection.execute("DELETE FROM edge_routes")
         connection.execute("DELETE FROM edges")
         connection.execute("DELETE FROM stops")
+        connection.execute("DELETE FROM routes")
+        connection.execute("DELETE FROM build_metadata")
+        connection.execute("DELETE FROM road_geometry_cache")
+        connection.execute("DELETE FROM road_geometry_rejections")
 
         # Salvar paradas
         stop_rows = []
@@ -98,10 +151,92 @@ def save_graph(graph, db_path):
             route_rows
         )
 
+        # Salvar metadados das linhas
+        line_rows = [
+            (
+                route_id,
+                data.get("short_name"),
+                data.get("long_name")
+            )
+            for route_id, data in graph.routes.items()
+        ]
+
+        connection.executemany(
+            """
+            INSERT INTO routes (route_id, short_name, long_name)
+            VALUES (?, ?, ?)
+            """,
+            line_rows
+        )
+
+        # Salvar pontos das geometrias GTFS
+        shape_point_count = sum(
+            len(points)
+            for points in graph.shape_points.values()
+        )
+
+        shape_rows = [
+            (
+                shape_id,
+                sqlite3.Binary(zlib.compress(
+                    json.dumps(
+                        points,
+                        separators=(",", ":")
+                    ).encode("utf-8"),
+                    level=9
+                ))
+            )
+            for shape_id, points in graph.shape_points.items()
+        ]
+
+        connection.executemany(
+            """
+            INSERT INTO shapes (shape_id, points)
+            VALUES (?, ?)
+            """,
+            shape_rows
+        )
+
+        edge_shape_rows = [
+            (
+                data["source"],
+                data["target"],
+                data["route_id"],
+                data["trip_id"],
+                data["shape_id"],
+                data["from_sequence"],
+                data["to_sequence"],
+                data.get("headsign")
+            )
+            for data in graph.edge_shapes.values()
+        ]
+
+        connection.executemany(
+            """
+            INSERT INTO edge_shapes
+            (source, target, route_id, trip_id, shape_id,
+             from_sequence, to_sequence, headsign)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            edge_shape_rows
+        )
+
+        metadata_rows = [
+            (key, json.dumps(value, ensure_ascii=False))
+            for key, value in (metadata or graph.metadata).items()
+        ]
+        connection.executemany(
+            "INSERT INTO build_metadata (key, value) VALUES (?, ?)",
+            metadata_rows
+        )
+
     return {
         "stops_saved": len(stop_rows),
         "edges_saved": len(edge_rows),
         "edge_routes_saved": len(route_rows),
+        "routes_saved": len(line_rows),
+        "shape_points_saved": shape_point_count,
+        "edge_shapes_saved": len(edge_shape_rows),
         "database": str(db_path)
     }
 
@@ -152,5 +287,41 @@ def load_graph(db_path):
 
         for source, target, route_id in cursor:
             graph.add_edge(source, target, route_id=route_id)
+
+        # Bancos antigos continuam compatíveis mesmo sem as tabelas GTFS
+        # enriquecidas.
+        table_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+
+        if "routes" in table_names:
+            cursor = connection.execute("""
+                SELECT route_id, short_name, long_name
+                FROM routes
+            """)
+
+            for route_id, short_name, long_name in cursor:
+                graph.add_route(route_id, short_name, long_name)
+
+        if "edge_shapes" in table_names:
+            cursor = connection.execute("""
+                SELECT source, target, route_id, trip_id, shape_id,
+                       from_sequence, to_sequence, headsign
+                FROM edge_shapes
+            """)
+
+            for row in cursor:
+                graph.add_edge_shape(*row)
+
+        if "build_metadata" in table_names:
+            graph.metadata = {
+                key: json.loads(value)
+                for key, value in connection.execute(
+                    "SELECT key, value FROM build_metadata"
+                )
+            }
 
     return graph

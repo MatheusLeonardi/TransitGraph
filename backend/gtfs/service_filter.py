@@ -7,7 +7,17 @@ def get_active_service_ids(calendar_rows, service_date):
     informado em calendar.txt.
     """
 
-    weekday = service_date.strftime("%A").lower()
+    # Não depende do idioma configurado no sistema operacional.
+    weekdays = (
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday"
+    )
+    weekday = weekdays[service_date.weekday()]
     date_string = service_date.strftime("%Y%m%d")
 
     active_services = set()

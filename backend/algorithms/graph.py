@@ -11,6 +11,26 @@ class Graph:
         # Linhas que realizam cada conexão
         self.edge_routes = {}
 
+        # Metadados das linhas GTFS
+        self.routes = {}
+
+        # Viagem/shape representativo de cada conexão por linha
+        self.edge_shapes = {}
+
+        # Pontos dos shapes são usados na etapa de persistência. O carregamento
+        # da aplicação mantém esses pontos apenas no SQLite para economizar RAM.
+        self.shape_points = {}
+
+        # Informações da construção (data de serviço, shapes, viagens etc.)
+        self.metadata = {}
+
+    def add_route(self, route_id, short_name=None, long_name=None):
+        self.routes[route_id] = {
+            "route_id": route_id,
+            "short_name": short_name,
+            "long_name": long_name
+        }
+
     def add_stop(self, stop_id, name=None, latitude=None, longitude=None):
 
         # Garante que o vértice exista na lista de adjacência
@@ -53,6 +73,32 @@ class Graph:
 
         if route_id is not None:
             self.edge_routes[edge].add(route_id)
+
+    def add_edge_shape(
+        self,
+        source,
+        target,
+        route_id,
+        trip_id,
+        shape_id,
+        from_sequence,
+        to_sequence,
+        headsign=None
+    ):
+        key = (source, target, route_id)
+
+        # Uma referência representativa é suficiente para desenhar a conexão.
+        if key not in self.edge_shapes:
+            self.edge_shapes[key] = {
+                "source": source,
+                "target": target,
+                "route_id": route_id,
+                "trip_id": trip_id,
+                "shape_id": shape_id,
+                "from_sequence": from_sequence,
+                "to_sequence": to_sequence,
+                "headsign": headsign
+            }
 
     def get_neighbors(self, stop_id):
         return list(self.adjacency.get(stop_id, {}).keys())

@@ -1,27 +1,66 @@
 
+import os
 import sqlite3
 from pathlib import Path
+from time import perf_counter
 from flask import Flask, jsonify, request, render_template
 from collections import deque
 from backend.algorithms.bfs import bfs
 from backend.algorithms.dfs import dfs
 from backend.algorithms.connectivity import weakly_connected_components
 from backend.models.database import load_graph
+from backend.services.itinerary_service import build_itinerary
+from backend.services.road_matching_service import refine_itinerary_geometry
 
 
 # Caminhos do projeto
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = PROJECT_DIR / "data" / "processed" / "transitgraph.db"
+VISIT_ORDER_LIMIT = 200
 
 
-def get_database_connection():
+def prepare_algorithm_result(result, graph, database_path=None):
+    """Prepara uma resposta compacta sem perder as métricas da busca."""
+    response = dict(result)
+    visit_order = response["visited_order"]
+
+    response["visited_order"] = visit_order[:VISIT_ORDER_LIMIT]
+    response["visited_order_total"] = len(visit_order)
+    response["visited_order_truncated"] = (
+        len(visit_order) > VISIT_ORDER_LIMIT
+    )
+
+    # reachable_stops repete integralmente visited_order na DFS.
+    response.pop("reachable_stops", None)
+
+    path = response.get("path") or []
+    response["path_stops"] = [
+        graph.get_stop(stop_id)
+        for stop_id in path
+    ]
+    itinerary = build_itinerary(
+        graph,
+        path,
+        database_path=database_path
+    )
+    response["itinerary"] = refine_itinerary_geometry(
+        itinerary,
+        database_path
+    )
+
+    return response
+
+
+def get_database_connection(database_path=DATABASE_PATH):
     """Abre uma conexão com o banco SQLite."""
-    connection = sqlite3.connect(DATABASE_PATH)
+    connection = sqlite3.connect(database_path)
     connection.row_factory = sqlite3.Row
     return connection
 
 
-def create_app(graph=None):
+def create_app(graph=None, database_path=None):
+
+    database_path = Path(database_path or DATABASE_PATH)
 
     app = Flask(
     __name__,
@@ -31,15 +70,16 @@ def create_app(graph=None):
 
     # Carrega o grafo somente uma vez
     if graph is None:
-        if not DATABASE_PATH.exists():
+        if not database_path.exists():
             raise FileNotFoundError(
-                f"Banco de dados não encontrado: {DATABASE_PATH}. "
+                f"Banco de dados não encontrado: {database_path}. "
                 "Execute primeiro scripts/save_graph.py."
             )
 
-        graph = load_graph(DATABASE_PATH)
+        graph = load_graph(database_path)
 
     app.config["GRAPH"] = graph
+    app.config["DATABASE_PATH"] = database_path
 
     @app.get("/")
     def index():
@@ -69,6 +109,8 @@ def create_app(graph=None):
         return jsonify({
             "vertices": graph.vertex_count(),
             "edges": graph.edge_count(),
+            "service_date": graph.metadata.get("service_date"),
+            "active_shapes": graph.metadata.get("active_shapes"),
             "edge_routes": sum(
                 len(routes)
                 for routes in graph.edge_routes.values()
@@ -91,7 +133,7 @@ def create_app(graph=None):
 
         limit = max(1, min(limit, 100))
 
-        with get_database_connection() as connection:
+        with get_database_connection(database_path) as connection:
 
             if query:
 
@@ -147,7 +189,7 @@ def create_app(graph=None):
 
         limit = max(1, min(limit, 10000))
 
-        with get_database_connection() as connection:
+        with get_database_connection(database_path) as connection:
 
             rows = connection.execute(
                 """
@@ -200,12 +242,11 @@ def create_app(graph=None):
         try:
             result = bfs(graph, str(origin), str(destination))
 
-            result["path_stops"] = [
-                graph.get_stop(stop_id)
-                for stop_id in result["path"]
-            ] if result["found"] else []
-
-            return jsonify(result)
+            return jsonify(prepare_algorithm_result(
+                result,
+                graph,
+                database_path
+            ))
 
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
@@ -220,6 +261,7 @@ def create_app(graph=None):
         data = request.get_json(silent=True) or {}
 
         origin = data.get("origin")
+        destination = data.get("destination")
 
         if not origin:
             return jsonify({
@@ -227,9 +269,78 @@ def create_app(graph=None):
             }), 400
 
         try:
-            result = dfs(graph, str(origin))
+            result = dfs(
+                graph,
+                str(origin),
+                str(destination) if destination else None
+            )
 
-            return jsonify(result)
+            return jsonify(prepare_algorithm_result(
+                result,
+                graph,
+                database_path
+            ))
+
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
+    # --------------------------------------------------
+    # ROTA: COMPARAR BFS E DFS NA MESMA CONSULTA
+    # --------------------------------------------------
+
+    @app.post("/api/algorithms/compare")
+    def compare_algorithms():
+
+        data = request.get_json(silent=True) or {}
+        origin = data.get("origin")
+        destination = data.get("destination")
+
+        if not origin or not destination:
+            return jsonify({
+                "error": "Informe as paradas de origem e destino."
+            }), 400
+
+        try:
+            origin = str(origin)
+            destination = str(destination)
+
+            start = perf_counter()
+            bfs_result = bfs(graph, origin, destination)
+            bfs_time_ms = (perf_counter() - start) * 1000
+
+            start = perf_counter()
+            dfs_result = dfs(graph, origin, destination)
+            dfs_time_ms = (perf_counter() - start) * 1000
+
+            bfs_response = prepare_algorithm_result(
+                bfs_result,
+                graph,
+                database_path
+            )
+            dfs_response = prepare_algorithm_result(
+                dfs_result,
+                graph,
+                database_path
+            )
+            bfs_response["execution_time_ms"] = round(bfs_time_ms, 4)
+            dfs_response["execution_time_ms"] = round(dfs_time_ms, 4)
+
+            return jsonify({
+                "origin": origin,
+                "destination": destination,
+                "bfs": bfs_response,
+                "dfs": dfs_response,
+                "explanation": {
+                    "bfs": (
+                        "Explora por níveis e garante o menor caminho em "
+                        "número de arestas em um grafo não ponderado."
+                    ),
+                    "dfs": (
+                        "Aprofunda um ramo antes de retroceder e não "
+                        "garante o menor caminho."
+                    )
+                }
+            })
 
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
@@ -360,8 +471,11 @@ app = create_app()
 
 
 if __name__ == "__main__":
+    debug = os.getenv("TRANSITGRAPH_DEBUG", "").lower() in {
+        "1", "true", "yes"
+    }
     app.run(
         host="127.0.0.1",
         port=5000,
-        debug=True
+        debug=debug
     )

@@ -1,4 +1,5 @@
 
+import argparse
 import sys
 from pathlib import Path
 from datetime import date
@@ -18,6 +19,18 @@ DATABASE_FILE = (
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Importar um GTFS e salvar o grafo no SQLite"
+    )
+    parser.add_argument(
+        "--date",
+        default=date.today().isoformat(),
+        help="Data de operação no formato AAAA-MM-DD"
+    )
+    parser.add_argument("--gtfs", type=Path, default=GTFS_FILE)
+    parser.add_argument("--database", type=Path, default=DATABASE_FILE)
+    args = parser.parse_args()
+
     print("=" * 55)
     print("TRANSITGRAPH - SALVANDO GRAFO NO SQLITE")
     print("=" * 55)
@@ -25,8 +38,8 @@ def main():
     print("\nImportando GTFS...")
 
     graph, stats = import_gtfs(
-        GTFS_FILE,
-        date(2026, 11, 1)
+        args.gtfs,
+        date.fromisoformat(args.date)
     )
 
     print("Grafo construído!")
@@ -35,7 +48,7 @@ def main():
 
     print("\nSalvando no banco de dados...")
 
-    result = save_graph(graph, DATABASE_FILE)
+    result = save_graph(graph, args.database, metadata=stats)
 
     print("\nSALVAMENTO CONCLUÍDO!")
 

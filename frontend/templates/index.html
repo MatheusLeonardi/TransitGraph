@@ -10,7 +10,7 @@
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
     <link rel="stylesheet"
-          href="{{ url_for('static', filename='css/style.css') }}">
+          href="{{ url_for('static', filename='css/style.css', v='20261102-2') }}">
 </head>
 
 <body>
@@ -48,6 +48,7 @@
             </div>
 
             <div class="topbar-right">
+                <span id="data-date" class="data-date"></span>
                 <span class="live-status">
                     <span class="status-dot"></span>
                     API ONLINE
@@ -144,9 +145,20 @@
 
                     <label for="origin">Parada de origem</label>
                     <input id="origin" type="text" placeholder="Código da parada">
+                    <small id="origin-name" class="selected-stop-name"></small>
 
                     <label for="destination">Parada de destino</label>
                     <input id="destination" type="text" placeholder="Código da parada">
+                    <small id="destination-name" class="selected-stop-name"></small>
+
+                    <div class="route-field-actions">
+                        <button id="reverse-stops-button" type="button">
+                            Inverter paradas
+                        </button>
+                        <button id="clear-stops-button" type="button">
+                            Limpar
+                        </button>
+                    </div>
 
                     <div class="algorithm-buttons">
                         <button id="bfs-button" class="primary-button">
@@ -156,10 +168,15 @@
                         <button id="dfs-button" class="secondary-button">
                             Executar DFS
                         </button>
+
+                        <button id="compare-button" class="compare-button">
+                            Comparar BFS × DFS
+                        </button>
                     </div>
 
                     <div id="algorithm-result" class="result-box">
-                        Selecione as paradas e execute um algoritmo.
+                        Selecione as paradas para consultar a ordem de visita
+                        e comparar o comportamento dos algoritmos.
                     </div>
 
                 </section>
@@ -243,7 +260,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='20261102-2') }}"></script>
 
 </body>
 </html>
