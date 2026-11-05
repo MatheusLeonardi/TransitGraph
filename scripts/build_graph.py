@@ -65,6 +65,7 @@ def main():
     print(f"edges_saved: {result['edges_saved']}")
     print(f"routes_saved: {result['routes_saved']}")
     print(f"edge_shapes_saved: {result['edge_shapes_saved']}")
+    print(f"edge_weights_saved: {result['edge_weights_saved']}")
     print(f"shape_points_saved: {result['shape_points_saved']}")
 
 

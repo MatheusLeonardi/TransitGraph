@@ -44,6 +44,15 @@ def save_graph(graph, db_path, metadata=None):
                     REFERENCES edges(source, target)
             );
 
+            CREATE TABLE IF NOT EXISTS edge_weights (
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                weight_seconds REAL NOT NULL CHECK (weight_seconds >= 0),
+                PRIMARY KEY (source, target),
+                FOREIGN KEY (source, target)
+                    REFERENCES edges(source, target)
+            );
+
             CREATE TABLE IF NOT EXISTS routes (
                 route_id TEXT PRIMARY KEY,
                 short_name TEXT,
@@ -79,6 +88,7 @@ def save_graph(graph, db_path, metadata=None):
         # Apagar os dados anteriores
         connection.execute("DELETE FROM edge_shapes")
         connection.execute("DELETE FROM shapes")
+        connection.execute("DELETE FROM edge_weights")
         connection.execute("DELETE FROM edge_routes")
         connection.execute("DELETE FROM edges")
         connection.execute("DELETE FROM stops")
@@ -137,6 +147,18 @@ def save_graph(graph, db_path, metadata=None):
             VALUES (?, ?, ?)
             """,
             route_rows
+        )
+
+        weight_rows = [
+            (source, target, weight_seconds)
+            for (source, target), weight_seconds in graph.edge_weights.items()
+        ]
+        connection.executemany(
+            """
+            INSERT INTO edge_weights (source, target, weight_seconds)
+            VALUES (?, ?, ?)
+            """,
+            weight_rows
         )
 
         # Salvar metadados das linhas
@@ -222,6 +244,7 @@ def save_graph(graph, db_path, metadata=None):
         "stops_saved": len(stop_rows),
         "edges_saved": len(edge_rows),
         "edge_routes_saved": len(route_rows),
+        "edge_weights_saved": len(weight_rows),
         "routes_saved": len(line_rows),
         "shape_points_saved": shape_point_count,
         "edge_shapes_saved": len(edge_shape_rows),
@@ -284,6 +307,12 @@ def load_graph(db_path):
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             )
         }
+
+        if "edge_weights" in table_names:
+            for source, target, weight_seconds in connection.execute(
+                "SELECT source, target, weight_seconds FROM edge_weights"
+            ):
+                graph.set_edge_weight(source, target, weight_seconds)
 
         if "routes" in table_names:
             cursor = connection.execute("""

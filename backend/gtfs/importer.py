@@ -2,6 +2,7 @@
 import csv
 import io
 import math
+import statistics
 import zipfile
 
 from collections import defaultdict
@@ -28,6 +29,19 @@ def geographic_distance_meters(first, second):
         * math.sin(longitude_delta / 2) ** 2
     )
     return 12_742_000 * math.asin(math.sqrt(haversine))
+
+
+def parse_gtfs_time(value):
+    """Converte horário GTFS HH:MM:SS em segundos, incluindo horas > 24."""
+    if not value:
+        return None
+    try:
+        hours, minutes, seconds = (int(part) for part in value.split(":"))
+    except (TypeError, ValueError):
+        return None
+    if hours < 0 or not 0 <= minutes < 60 or not 0 <= seconds < 60:
+        return None
+    return hours * 3600 + minutes * 60 + seconds
 
 
 def is_shape_match_valid(stop, shape_point):
@@ -244,7 +258,9 @@ def import_gtfs(gtfs_path, service_date):
                 trip_stops[trip_id].append(
                     (
                         int(row["stop_sequence"]),
-                        row["stop_id"]
+                        row["stop_id"],
+                        parse_gtfs_time(row.get("arrival_time")),
+                        parse_gtfs_time(row.get("departure_time"))
                     )
                 )
 
@@ -283,14 +299,15 @@ def import_gtfs(gtfs_path, service_date):
 
         graph.shape_points = dict(shape_points)
         rejected_shape_edges = 0
+        edge_time_samples = defaultdict(list)
 
         for trip_id, stop_sequence in trip_stops.items():
 
             stop_sequence.sort(key=lambda item: item[0])
 
             ordered_stops = [
-                stop_id
-                for _, stop_id in stop_sequence
+                item[1]
+                for item in stop_sequence
             ]
 
             # Adicionar vértices e seus dados geográficos
@@ -336,6 +353,17 @@ def import_gtfs(gtfs_path, service_date):
                     route_id=route_id
                 )
 
+                departure_seconds = stop_sequence[index][3]
+                arrival_seconds = stop_sequence[index + 1][2]
+                if (
+                    departure_seconds is not None
+                    and arrival_seconds is not None
+                    and arrival_seconds > departure_seconds
+                ):
+                    edge_time_samples[(source, target)].append(
+                        arrival_seconds - departure_seconds
+                    )
+
                 source_shape_index = matched_indexes[index]
                 target_shape_index = matched_indexes[index + 1]
 
@@ -370,6 +398,13 @@ def import_gtfs(gtfs_path, service_date):
                         headsign=trip.get("headsign")
                     )
 
+        for (source, target), samples in edge_time_samples.items():
+            graph.set_edge_weight(
+                source,
+                target,
+                statistics.median(samples)
+            )
+
         # 8. Estatísticas
         stats = {
             "service_date": service_date.isoformat(),
@@ -386,6 +421,7 @@ def import_gtfs(gtfs_path, service_date):
                 for points in shape_points.values()
             ),
             "shape_edges": len(graph.edge_shapes),
+            "weighted_edges": len(graph.edge_weights),
             "rejected_shape_edges": rejected_shape_edges
         }
 
