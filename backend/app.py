@@ -7,6 +7,7 @@ from flask import Flask, jsonify, request, render_template
 from collections import deque
 from backend.algorithms.bfs import bfs
 from backend.algorithms.dfs import dfs
+from backend.algorithms.dijkstra import dijkstra
 from backend.algorithms.connectivity import weakly_connected_components
 from backend.models.database import load_graph
 from backend.services.itinerary_service import build_itinerary
@@ -281,6 +282,27 @@ def create_app(graph=None, database_path=None):
                 database_path
             ))
 
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+
+    @app.post("/api/algorithms/dijkstra")
+    def run_dijkstra():
+
+        data = request.get_json(silent=True) or {}
+        origin = data.get("origin")
+        destination = data.get("destination")
+        if not origin or not destination:
+            return jsonify({
+                "error": "Informe as paradas de origem e destino."
+            }), 400
+
+        try:
+            result = dijkstra(graph, str(origin), str(destination))
+            return jsonify(prepare_algorithm_result(
+                result,
+                graph,
+                database_path
+            ))
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
 

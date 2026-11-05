@@ -10,7 +10,7 @@
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
     <link rel="stylesheet"
-          href="{{ url_for('static', filename='css/style.css', v='20261102-2') }}">
+          href="{{ url_for('static', filename='css/style.css', v='20261105-12') }}">
 </head>
 
 <body>
@@ -156,11 +156,17 @@
                     </div>
 
                     <label for="origin">Parada de origem</label>
-                    <input id="origin" type="text" placeholder="Código da parada">
+                    <div class="stop-autocomplete">
+                        <input id="origin" type="text" placeholder="Digite o nome ou código da parada" autocomplete="off" aria-expanded="false" aria-controls="origin-suggestions">
+                        <div id="origin-suggestions" class="stop-suggestions" role="listbox"></div>
+                    </div>
                     <small id="origin-name" class="selected-stop-name"></small>
 
                     <label for="destination">Parada de destino</label>
-                    <input id="destination" type="text" placeholder="Código da parada">
+                    <div class="stop-autocomplete">
+                        <input id="destination" type="text" placeholder="Digite o nome ou código da parada" autocomplete="off" aria-expanded="false" aria-controls="destination-suggestions">
+                        <div id="destination-suggestions" class="stop-suggestions" role="listbox"></div>
+                    </div>
                     <small id="destination-name" class="selected-stop-name"></small>
 
                     <div class="route-field-actions">
@@ -179,6 +185,10 @@
 
                         <button id="dfs-button" class="secondary-button">
                             Executar DFS
+                        </button>
+
+                        <button id="weighted-button" class="weighted-button">
+                            Menor tempo (Dijkstra)
                         </button>
 
                         <button id="compare-button" class="compare-button">
@@ -272,7 +282,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='20261102-2') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='20261105-12') }}"></script>
 
 </body>
 </html>

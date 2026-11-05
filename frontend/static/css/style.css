@@ -355,6 +355,61 @@ button {
     margin: 12px 0 6px;
 }
 
+.stop-autocomplete {
+    position: relative;
+}
+
+.stop-suggestions {
+    display: none;
+    position: absolute;
+    inset: calc(100% + 4px) 0 auto;
+    z-index: 1200;
+    max-height: 230px;
+    overflow-y: auto;
+    padding: 4px;
+    background: #fff;
+    border: 1px solid #dfe5ed;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(20, 38, 70, 0.16);
+}
+
+.stop-autocomplete input[aria-expanded="true"] + .stop-suggestions {
+    display: block;
+}
+
+.stop-suggestion {
+    display: block;
+    width: 100%;
+    padding: 9px 10px;
+    text-align: left;
+    white-space: normal;
+    background: #fff;
+    color: #26344b;
+}
+
+.stop-suggestion:hover,
+.stop-suggestion:focus-visible {
+    background: #eaf2ff;
+    outline: none;
+}
+
+.stop-suggestion strong,
+.stop-suggestion small {
+    display: block;
+}
+
+.stop-suggestion small,
+.stop-suggestion-empty {
+    margin-top: 3px;
+    color: #8490a3;
+    font-size: 10px;
+    font-weight: 400;
+}
+
+.stop-suggestion-empty {
+    padding: 10px;
+}
+
 .selected-stop-name {
     display: block;
     min-height: 14px;
@@ -398,6 +453,12 @@ button {
     color: white;
 }
 
+.weighted-button {
+    flex-basis: 100% !important;
+    background: #126b55;
+    color: white;
+}
+
 .result-box {
     background: #f5f8fc;
     border-radius: 8px;
@@ -411,6 +472,12 @@ button {
 
 .result-box strong {
     color: #172033;
+}
+
+.weight-estimate-note {
+    display: block;
+    margin-top: 6px;
+    color: #9a5c06;
 }
 
 .algorithm-comparison {

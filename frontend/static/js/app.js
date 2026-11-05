@@ -336,9 +336,115 @@ async function searchStops() {
 
 
 function selectStop(field, stop) {
-    document.getElementById(field).value = stop.stop_id;
+    const input = document.getElementById(field);
+    input.value = `${stop.name || "Parada sem nome"} — ${stop.stop_id}`;
+    input.dataset.stopId = stop.stop_id;
     document.getElementById(`${field}-name`).textContent =
-        stop.name || "Parada sem nome";
+        `Código selecionado: ${stop.stop_id}`;
+    hideStopSuggestions(field);
+}
+
+
+function hideStopSuggestions(field) {
+    const input = document.getElementById(field);
+    const suggestions = document.getElementById(`${field}-suggestions`);
+    suggestions.replaceChildren();
+    input.setAttribute("aria-expanded", "false");
+}
+
+
+function readStopId(field) {
+    const input = document.getElementById(field);
+    if (input.dataset.stopId) return input.dataset.stopId;
+    const value = input.value.trim();
+    return /^\d+$/.test(value) ? value : "";
+}
+
+
+function hasUnselectedStopText(field) {
+    const input = document.getElementById(field);
+    return Boolean(input.value.trim()) && !readStopId(field);
+}
+
+
+function setupStopAutocomplete(field) {
+    const input = document.getElementById(field);
+    const suggestions = document.getElementById(`${field}-suggestions`);
+    let timer = null;
+    let controller = null;
+
+    async function search(query) {
+        if (controller) controller.abort();
+        controller = new AbortController();
+        try {
+            const response = await fetch(
+                `/api/stops?q=${encodeURIComponent(query)}&limit=8`,
+                { signal: controller.signal }
+            );
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Falha ao buscar paradas.");
+
+            suggestions.replaceChildren();
+            data.stops.forEach(stop => {
+                const option = document.createElement("button");
+                option.type = "button";
+                option.className = "stop-suggestion";
+                option.setAttribute("role", "option");
+                const name = document.createElement("strong");
+                name.textContent = stop.name || "Parada sem nome";
+                const code = document.createElement("small");
+                code.textContent = `Código ${stop.stop_id}`;
+                option.append(name, code);
+                option.addEventListener("mousedown", event => event.preventDefault());
+                option.addEventListener("click", () => selectStop(field, stop));
+                suggestions.appendChild(option);
+            });
+
+            if (!data.stops.length) {
+                const empty = document.createElement("div");
+                empty.className = "stop-suggestion-empty";
+                empty.textContent = "Nenhuma parada encontrada.";
+                suggestions.appendChild(empty);
+            }
+            input.setAttribute("aria-expanded", "true");
+        } catch (error) {
+            if (error.name !== "AbortError") {
+                suggestions.replaceChildren();
+                input.setAttribute("aria-expanded", "false");
+            }
+        }
+    }
+
+    input.addEventListener("input", () => {
+        input.dataset.stopId = "";
+        document.getElementById(`${field}-name`).textContent = "";
+        if (timer) clearTimeout(timer);
+        const query = input.value.trim();
+        if (query.length < 2) {
+            hideStopSuggestions(field);
+            return;
+        }
+        timer = setTimeout(() => search(query), 220);
+    });
+
+    input.addEventListener("keydown", event => {
+        if (event.key === "Escape") hideStopSuggestions(field);
+        if (event.key === "Enter" && !input.dataset.stopId) {
+            const first = suggestions.querySelector("button[role='option']");
+            if (first) {
+                event.preventDefault();
+                first.click();
+            }
+        }
+    });
+
+    input.addEventListener("blur", () => {
+        setTimeout(() => {
+            if (!suggestions.contains(document.activeElement)) {
+                hideStopSuggestions(field);
+            }
+        }, 120);
+    });
 }
 
 
@@ -348,12 +454,15 @@ function selectStop(field, stop) {
 
 async function executeBFS() {
 
-    const origin = document.getElementById("origin").value.trim();
-    const destination = document.getElementById("destination").value.trim();
+    const origin = readStopId("origin");
+    const destination = readStopId("destination");
     const resultBox = document.getElementById("algorithm-result");
 
     if (!origin || !destination) {
-        resultBox.textContent = "Informe a origem e o destino.";
+        resultBox.textContent = hasUnselectedStopText("origin")
+            || hasUnselectedStopText("destination")
+            ? "Escolha origem e destino nas sugestões de paradas."
+            : "Informe a origem e o destino.";
         return;
     }
 
@@ -417,32 +526,31 @@ function clearPath() {
 function addDirectionArrows(geometry, color, group) {
     if (!geometry || geometry.length < 2) return;
 
-    const arrowCount = Math.min(4, Math.max(1, Math.floor(geometry.length / 35)));
-
-    for (let arrow = 1; arrow <= arrowCount; arrow += 1) {
-        const index = Math.min(
-            Math.floor((geometry.length - 1) * arrow / (arrowCount + 1)),
-            geometry.length - 2
-        );
-        const current = geometry[index];
-        const next = geometry[index + 1];
-        const screenX = next[1] - current[1];
-        const screenY = -(next[0] - current[0]);
-        const angle = Math.atan2(screenY, screenX) * 180 / Math.PI;
-
-        const icon = L.divIcon({
-            className: "route-arrow-icon",
-            html: `<span style="color:${color};transform:rotate(${angle}deg)">➤</span>`,
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
-        });
-
-        group.addLayer(L.marker(current, {
-            icon,
-            interactive: false,
-            keyboard: false
-        }));
+    const index = Math.floor((geometry.length - 1) / 2);
+    let nextIndex = index + 1;
+    while (nextIndex < geometry.length
+        && geometry[nextIndex][0] === geometry[index][0]
+        && geometry[nextIndex][1] === geometry[index][1]) {
+        nextIndex += 1;
     }
+    if (nextIndex >= geometry.length) return;
+
+    const current = geometry[index];
+    const next = geometry[nextIndex];
+    const screenX = next[1] - current[1];
+    const screenY = -(next[0] - current[0]);
+    const angle = Math.atan2(screenY, screenX) * 180 / Math.PI;
+    const icon = L.divIcon({
+        className: "route-arrow-icon",
+        html: `<span style="color:${color};transform:rotate(${angle}deg)">➤</span>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+    group.addLayer(L.marker(current, {
+        icon,
+        interactive: false,
+        keyboard: false
+    }));
 }
 
 function drawItinerary(itinerary, stops) {
@@ -453,6 +561,7 @@ function drawItinerary(itinerary, stops) {
 
     const colors = ["#e94b64", "#2878ed", "#f59e0b", "#16a085", "#8b5cf6"];
     pathLayer = L.featureGroup().addTo(map);
+    let directionArrow = null;
 
     if (itinerary && itinerary.legs.length > 0) {
         itinerary.legs.forEach((leg, index) => {
@@ -467,12 +576,21 @@ function drawItinerary(itinerary, stops) {
             const label = leg.route_short_name || "Linha não identificada";
             line.bindPopup(`Linha ${label}`);
             pathLayer.addLayer(line);
-            addDirectionArrows(
-                leg.geometry,
-                colors[index % colors.length],
-                pathLayer
-            );
+            if (!directionArrow || leg.geometry.length > directionArrow.geometry.length) {
+                directionArrow = {
+                    geometry: leg.geometry,
+                    color: colors[index % colors.length]
+                };
+            }
         });
+    }
+
+    if (directionArrow) {
+        addDirectionArrows(
+            directionArrow.geometry,
+            directionArrow.color,
+            pathLayer
+        );
     }
 
     if (pathLayer.getLayers().length === 0) {
@@ -519,11 +637,18 @@ function drawItinerary(itinerary, stops) {
 
 async function executeDFS() {
 
-    const origin = document.getElementById("origin").value.trim();
+    const origin = readStopId("origin");
+    const destination = readStopId("destination");
     const resultBox = document.getElementById("algorithm-result");
 
     if (!origin) {
-        resultBox.textContent = "Informe a parada de origem.";
+        resultBox.textContent = hasUnselectedStopText("origin")
+            ? "Escolha a origem nas sugestões de paradas."
+            : "Informe a parada de origem.";
+        return;
+    }
+    if (hasUnselectedStopText("destination")) {
+        resultBox.textContent = "Escolha o destino nas sugestões de paradas.";
         return;
     }
 
@@ -537,9 +662,7 @@ async function executeDFS() {
             },
             body: JSON.stringify({
                 origin,
-                destination: document
-                    .getElementById("destination")
-                    .value.trim() || null
+                destination: destination || null
             })
         });
 
@@ -577,18 +700,72 @@ async function executeDFS() {
 }
 
 
+async function executeWeightedSearch() {
+    const origin = readStopId("origin");
+    const destination = readStopId("destination");
+    const resultBox = document.getElementById("algorithm-result");
+
+    if (!origin || !destination) {
+        resultBox.textContent = hasUnselectedStopText("origin")
+            || hasUnselectedStopText("destination")
+            ? "Escolha origem e destino nas sugestões de paradas."
+            : "Informe a origem e o destino.";
+        return;
+    }
+
+    resultBox.textContent = "Calculando a rota de menor tempo...";
+    clearPath();
+    try {
+        const response = await fetch("/api/algorithms/dijkstra", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ origin, destination })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Erro no Dijkstra.");
+        if (!data.found) {
+            resultBox.textContent = "Não foi encontrada uma rota ponderada entre as paradas.";
+            return;
+        }
+
+        resultBox.replaceChildren();
+        const title = document.createElement("strong");
+        title.textContent = "Rota de menor tempo estimado encontrada";
+        const duration = document.createElement("div");
+        duration.textContent = `Tempo de viagem nos ônibus: ${data.travel_time_minutes.toLocaleString("pt-BR")} min`;
+        const source = document.createElement("small");
+        source.textContent = `Pesos: ${data.weight_source}. Soma dos tempos entre paradas; não inclui espera de baldeação nem trânsito.`;
+        resultBox.append(title, duration, source);
+        if (data.estimated_edges_used > 0) {
+            const estimate = document.createElement("small");
+            estimate.className = "weight-estimate-note";
+            estimate.textContent = `${data.estimated_edges_used} trecho(s) da rota não tinham horário GTFS e receberam estimativa por distância reta a 18 km/h.`;
+            resultBox.appendChild(estimate);
+        }
+        appendPath(resultBox, data);
+        appendItinerary(resultBox, data.itinerary);
+        drawItinerary(data.itinerary, data.path_stops);
+    } catch (error) {
+        resultBox.textContent = error.message;
+    }
+}
+
+
 // --------------------------------------------------
 // COMPARAR BFS E DFS
 // --------------------------------------------------
 
 async function compareAlgorithms() {
 
-    const origin = document.getElementById("origin").value.trim();
-    const destination = document.getElementById("destination").value.trim();
+    const origin = readStopId("origin");
+    const destination = readStopId("destination");
     const resultBox = document.getElementById("algorithm-result");
 
     if (!origin || !destination) {
-        resultBox.textContent = "Informe a origem e o destino.";
+        resultBox.textContent = hasUnselectedStopText("origin")
+            || hasUnselectedStopText("destination")
+            ? "Escolha origem e destino nas sugestões de paradas."
+            : "Informe a origem e o destino.";
         return;
     }
 
@@ -704,6 +881,8 @@ function initializeSectionNavigation() {
 }
 
 initializeSectionNavigation();
+setupStopAutocomplete("origin");
+setupStopAutocomplete("destination");
 
 document.getElementById("search-button")
     .addEventListener("click", searchStops);
@@ -719,6 +898,9 @@ document.getElementById("bfs-button")
 document.getElementById("dfs-button")
     .addEventListener("click", executeDFS);
 
+document.getElementById("weighted-button")
+    .addEventListener("click", executeWeightedSearch);
+
 document.getElementById("compare-button")
     .addEventListener("click", compareAlgorithms);
 
@@ -728,17 +910,26 @@ document.getElementById("reverse-stops-button")
         const destination = document.getElementById("destination");
         const originName = document.getElementById("origin-name");
         const destinationName = document.getElementById("destination-name");
+        const originId = readStopId("origin");
+        const destinationId = readStopId("destination");
 
         [origin.value, destination.value] = [destination.value, origin.value];
+        origin.dataset.stopId = destinationId;
+        destination.dataset.stopId = originId;
         [originName.textContent, destinationName.textContent] =
             [destinationName.textContent, originName.textContent];
+        hideStopSuggestions("origin");
+        hideStopSuggestions("destination");
     });
 
 document.getElementById("clear-stops-button")
     .addEventListener("click", () => {
         ["origin", "destination"].forEach(field => {
-            document.getElementById(field).value = "";
+            const input = document.getElementById(field);
+            input.value = "";
+            input.dataset.stopId = "";
             document.getElementById(`${field}-name`).textContent = "";
+            hideStopSuggestions(field);
         });
         clearPath();
     });

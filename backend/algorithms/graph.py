@@ -11,6 +11,9 @@ class Graph:
         # Linhas que realizam cada conexão
         self.edge_routes = {}
 
+        # Tempo programado médio (segundos) por conexão direcionada.
+        self.edge_weights = {}
+
         # Metadados das linhas GTFS
         self.routes = {}
 
@@ -73,6 +76,10 @@ class Graph:
 
         if route_id is not None:
             self.edge_routes[edge].add(route_id)
+
+    def set_edge_weight(self, source, target, weight_seconds):
+        if (source, target) in self.edge_routes and weight_seconds >= 0:
+            self.edge_weights[(source, target)] = float(weight_seconds)
 
     def add_edge_shape(
         self,

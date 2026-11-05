@@ -88,6 +88,8 @@ python run.py
 - mapa das paradas com Leaflet e OpenStreetMap;
 - pesquisa de parada por nome ou código;
 - caminho com menor número de arestas usando BFS;
+- origem e destino selecionados pelo nome ou código da parada;
+- rota de menor tempo estimado com Dijkstra e pesos derivados dos horários GTFS;
 - alcançabilidade e caminho em profundidade usando DFS;
 - comparação lado a lado entre BFS e DFS;
 - identificação da ordem de visita dos vértices;
@@ -183,7 +185,7 @@ deve executar novamente esse comando na máquina usada na apresentação.
 
 ```text
 backend/
-  algorithms/       # grafo, BFS, DFS e conectividade
+  algorithms/       # grafo, BFS, DFS, Dijkstra e conectividade
   gtfs/              # importação e filtragem por data
   models/            # persistência SQLite
   app.py             # API Flask
@@ -200,6 +202,11 @@ run.py               # inicialização da aplicação
 ## Limitações
 
 - a BFS minimiza arestas, não tempo, distância geográfica ou transferências;
+- o Dijkstra soma o tempo programado entre paradas consecutivas no GTFS; não
+  inclui espera de baldeação nem trânsito em tempo real;
+- quando o GTFS não oferece horário para uma conexão, o Dijkstra estima o
+  tempo a partir da distância reta entre coordenadas, usando 18 km/h, e informa
+  quantos trechos da rota usaram essa estimativa;
 - depois de obter o menor caminho, o itinerário escolhe entre as linhas de cada
   aresta procurando reduzir baldeações, sem alterar o resultado da BFS;
 - o modelo atual não inclui trânsito, horários em tempo real ou caminhada;
