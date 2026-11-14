@@ -78,6 +78,16 @@ def save_graph(graph, db_path, metadata=None):
                     REFERENCES edge_routes(source, target, route_id)
             );
 
+            CREATE TABLE IF NOT EXISTS trip_edges (
+                source TEXT NOT NULL,
+                target TEXT NOT NULL,
+                route_id TEXT NOT NULL,
+                occurrences BLOB NOT NULL,
+                PRIMARY KEY (source, target, route_id),
+                FOREIGN KEY (source, target, route_id)
+                    REFERENCES edge_routes(source, target, route_id)
+            );
+
             CREATE TABLE IF NOT EXISTS build_metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -86,6 +96,7 @@ def save_graph(graph, db_path, metadata=None):
         """)
 
         # Apagar os dados anteriores
+        connection.execute("DELETE FROM trip_edges")
         connection.execute("DELETE FROM edge_shapes")
         connection.execute("DELETE FROM shapes")
         connection.execute("DELETE FROM edge_weights")
@@ -231,6 +242,14 @@ def save_graph(graph, db_path, metadata=None):
             edge_shape_rows
         )
 
+        connection.executemany(
+            "INSERT INTO trip_edges VALUES (?, ?, ?, ?)",
+            (
+                (*edge, zlib.compress(json.dumps(references, separators=(",", ":")).encode("utf-8")))
+                for edge, references in graph.trip_edges.items()
+            )
+        )
+
         metadata_rows = [
             (key, json.dumps(value, ensure_ascii=False))
             for key, value in (metadata or graph.metadata).items()
@@ -271,6 +290,7 @@ def load_graph(db_path):
         cursor = connection.execute("""
             SELECT stop_id, name, latitude, longitude
             FROM stops
+            ORDER BY rowid
         """)
 
         for stop_id, name, latitude, longitude in cursor:
@@ -285,6 +305,7 @@ def load_graph(db_path):
         cursor = connection.execute("""
             SELECT source, target
             FROM edges
+            ORDER BY rowid
         """)
 
         for source, target in cursor:
@@ -332,6 +353,14 @@ def load_graph(db_path):
 
             for row in cursor:
                 graph.add_edge_shape(*row)
+
+        if "trip_edges" in table_names:
+            graph.trip_edges = {
+                (source, target, route_id): json.loads(zlib.decompress(occurrences))
+                for source, target, route_id, occurrences in connection.execute(
+                    "SELECT source, target, route_id, occurrences FROM trip_edges"
+                )
+            }
 
         if "build_metadata" in table_names:
             graph.metadata = {

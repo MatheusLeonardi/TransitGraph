@@ -10,9 +10,18 @@ from pathlib import Path
 
 from backend.algorithms.graph import Graph
 from backend.gtfs.service_filter import get_active_service_ids
+from backend.gtfs.shape_locations import locate_stops
 
 
 MAX_SHAPE_STOP_DISTANCE_METERS = 150
+
+
+def parse_distance(value):
+    try:
+        distance = float(value)
+    except (TypeError, ValueError):
+        return None
+    return distance if math.isfinite(distance) and distance >= 0 else None
 
 
 def geographic_distance_meters(first, second):
@@ -260,7 +269,8 @@ def import_gtfs(gtfs_path, service_date):
                         int(row["stop_sequence"]),
                         row["stop_id"],
                         parse_gtfs_time(row.get("arrival_time")),
-                        parse_gtfs_time(row.get("departure_time"))
+                        parse_gtfs_time(row.get("departure_time")),
+                        parse_distance(row.get("shape_dist_traveled"))
                     )
                 )
 
@@ -270,7 +280,7 @@ def import_gtfs(gtfs_path, service_date):
             for trip in active_trips.values()
             if trip.get("shape_id")
         }
-        shape_points = defaultdict(list)
+        raw_shape_points = defaultdict(list)
 
         for row in read_gtfs_csv(
             archive, file_paths["shapes.txt"]
@@ -278,14 +288,20 @@ def import_gtfs(gtfs_path, service_date):
             shape_id = row["shape_id"]
 
             if shape_id in active_shape_ids:
-                shape_points[shape_id].append((
+                raw_shape_points[shape_id].append((
                     int(row["shape_pt_sequence"]),
                     float(row["shape_pt_lat"]),
-                    float(row["shape_pt_lon"])
+                    float(row["shape_pt_lon"]),
+                    parse_distance(row.get("shape_dist_traveled"))
                 ))
 
-        for points in shape_points.values():
-            points.sort(key=lambda point: point[0])
+        shape_points = {}
+        shape_distances = {}
+        for shape_id, rows in raw_shape_points.items():
+            rows.sort(key=lambda point: point[0])
+            shape_points[shape_id] = [row[:3] for row in rows]
+            shape_distances[shape_id] = [row[3] for row in rows]
+        del raw_shape_points
 
         # 7. Construir o grafo
         graph = Graph()
@@ -330,10 +346,12 @@ def import_gtfs(gtfs_path, service_date):
             route_id = trip["route_id"]
             shape_id = trip.get("shape_id")
             points = shape_points.get(shape_id, [])
-            matched_indexes = match_stops_to_shape(
-                ordered_stops,
-                stops,
-                points
+            locations, method = locate_stops(
+                points,
+                shape_distances.get(shape_id, []),
+                [item[4] for item in stop_sequence],
+                [stops.get(stop_id) for stop_id in ordered_stops],
+                MAX_SHAPE_STOP_DISTANCE_METERS,
             )
 
             for index in range(len(ordered_stops) - 1):
@@ -364,38 +382,37 @@ def import_gtfs(gtfs_path, service_date):
                         arrival_seconds - departure_seconds
                     )
 
-                source_shape_index = matched_indexes[index]
-                target_shape_index = matched_indexes[index + 1]
+                start, end = locations[index:index + 2]
+                reference = {
+                    "trip_id": trip_id,
+                    "shape_id": shape_id,
+                    "direction_id": trip["direction_id"],
+                    "headsign": trip["headsign"],
+                    "from_stop_sequence": stop_sequence[index][0],
+                    "to_stop_sequence": stop_sequence[index + 1][0],
+                    "from_sequence": start[0] if start else None,
+                    "to_sequence": end[0] if end else None,
+                    "endpoint_error_m": [round(start[1], 1) if start else None,
+                                         round(end[1], 1) if end else None],
+                    "location_method": method,
+                    "issue": None,
+                }
+                if not points:
+                    reference["issue"] = "shape-missing"
+                elif method == "invalid-shape":
+                    reference["issue"] = "invalid-shape"
+                elif start and end and start[0] == end[0]:
+                    reference["issue"] = "co-located-stops"
+                elif not start or not end or start[0] >= end[0]:
+                    reference["issue"] = "stop-position-unresolved"
+                graph.add_trip_edge(source, target, route_id, reference)
 
-                if (
-                    points
-                    and source_shape_index is not None
-                    and target_shape_index is not None
-                ):
-                    source_shape_point = points[source_shape_index]
-                    target_shape_point = points[target_shape_index]
-                    if (
-                        not is_shape_match_valid(
-                            stops[source],
-                            source_shape_point
-                        )
-                        or not is_shape_match_valid(
-                            stops[target],
-                            target_shape_point
-                        )
-                    ):
-                        rejected_shape_edges += 1
-                        continue
-
+                if reference["issue"]:
+                    rejected_shape_edges += 1
+                else:
                     graph.add_edge_shape(
-                        source,
-                        target,
-                        route_id,
-                        trip_id,
-                        shape_id,
-                        source_shape_point[0],
-                        target_shape_point[0],
-                        headsign=trip.get("headsign")
+                        source, target, route_id, trip_id, shape_id,
+                        start[0], end[0], headsign=trip["headsign"]
                     )
 
         for (source, target), samples in edge_time_samples.items():
@@ -408,6 +425,8 @@ def import_gtfs(gtfs_path, service_date):
         # 8. Estatísticas
         stats = {
             "service_date": service_date.isoformat(),
+            "geometry_version": 2,
+            "trip_edge_occurrences": sum(map(len, graph.trip_edges.values())),
             "active_services": len(active_services),
             "bus_routes": len(bus_routes),
             "active_trips": len(active_trips),

@@ -73,3 +73,24 @@ def test_shape_match_rejects_a_distant_point():
 
     assert is_shape_match_valid(stop, (1, -23.5501, -46.6301)) is True
     assert is_shape_match_valid(stop, (2, -23.60, -46.70)) is False
+
+
+def test_trip_without_shape_preserves_edges_and_weight(tmp_path):
+    from zipfile import ZipFile
+
+    from backend.gtfs.importer import import_gtfs
+
+    feed = tmp_path / "feed.zip"
+    with ZipFile(feed, "w") as archive:
+        archive.writestr("stops.txt", "stop_id,stop_name,stop_lat,stop_lon\nA,Alpha,0,0\nB,Beta,0,1\n")
+        archive.writestr("routes.txt", "route_id,route_type,route_short_name,route_long_name\nR,3,R,Route\n")
+        archive.writestr("calendar.txt", "service_id,sunday,start_date,end_date\nS,1,20260101,20261231\n")
+        archive.writestr("trips.txt", "route_id,service_id,trip_id,shape_id\nR,S,T,\n")
+        archive.writestr("shapes.txt", "shape_id,shape_pt_sequence,shape_pt_lat,shape_pt_lon\n")
+        archive.writestr("stop_times.txt", "trip_id,stop_id,stop_sequence,arrival_time,departure_time\n"
+                         "T,A,1,08:00:00,08:00:00\nT,B,2,08:01:00,08:01:00\n")
+
+    graph, stats = import_gtfs(feed, date(2026, 11, 1))
+    assert graph.get_neighbors("A") == ["B"]
+    assert graph.edge_weights["A", "B"] == 60
+    assert stats["shape_edges"] == 0

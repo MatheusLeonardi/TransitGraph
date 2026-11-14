@@ -6,37 +6,29 @@ def dfs(graph, origin, destination=None):
     if destination is not None and not graph.has_stop(destination):
         raise ValueError("Parada de destino inexistente.")
 
-    stack = [origin]
-
-    discovered = {origin}
-
+    # Cada quadro retoma os vizinhos depois do retorno de um filho.
+    stack = [(origin, iter(graph.adjacency[origin]))]
     parent = {origin: None}
+    visit_order = [origin]
+    finish_order = []
+    edges_examined = 0
 
-    visit_order = []
-
-    while stack:
-
-        current = stack.pop()
-
-        visit_order.append(current)
-
-        if current == destination:
-            break
-
-        neighbors = graph.get_neighbors(current)
-
-        # Inverte para preservar a ordem de inserção
-        for neighbor in reversed(neighbors):
-
-            if neighbor not in discovered:
-
-                discovered.add(neighbor)
+    while stack and visit_order[-1] != destination:
+        current, neighbors = stack[-1]
+        for neighbor in neighbors:
+            edges_examined += 1
+            if neighbor not in parent:
                 parent[neighbor] = current
-                stack.append(neighbor)
+                visit_order.append(neighbor)
+                stack.append((neighbor, iter(graph.adjacency[neighbor])))
+                break
+        else:
+            stack.pop()
+            finish_order.append(current)
 
     path = None
 
-    if destination is not None and destination in visit_order:
+    if destination is not None and destination in parent:
         path = []
         current = destination
 
@@ -51,9 +43,11 @@ def dfs(graph, origin, destination=None):
         "origin": origin,
         "destination": destination,
         "visited_order": visit_order,
+        "finish_order": finish_order,
         "visited_count": len(visit_order),
         "processed_count": len(visit_order),
-        "discovered_count": len(discovered),
+        "discovered_count": len(parent),
+        "edges_examined": edges_examined,
         "reachable_stops": visit_order,
         "path": path,
         "distance": len(path) - 1 if path else None,

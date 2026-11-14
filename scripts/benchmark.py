@@ -1,209 +1,121 @@
-"""Mede BFS e DFS de forma reproduzível para o relatório do TransitGraph."""
+"""Mede BFS e DFS nas mesmas condições, sem API ou renderização."""
 
 import argparse
 import platform
-import random
 import statistics
 import sys
-from datetime import datetime
+import tracemalloc
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from time import perf_counter
-
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
 from backend.algorithms.bfs import bfs
 from backend.algorithms.dfs import dfs
-from backend.algorithms.graph import Graph
 from backend.models.database import load_graph
+from backend.services.instance_service import INSTANCE_LABELS, build_instances
 
 
-DEFAULT_DATABASE = (
-    PROJECT_DIR / "data" / "processed" / "transitgraph.db"
-)
-DEFAULT_SIZES = (1_000, 5_000, 20_000, 50_000, 100_000, 200_000)
+DEFAULT_DATABASE = PROJECT_DIR / "data" / "processed" / "transitgraph.db"
+QUERIES = {
+    "local": ("480012875", "480014889"),
+    "lines": ("8812664", "940004410"),
+    "full": ("480012875", "480014632"),
+}
 
 
-def elapsed_ms(function, *args):
-    start = perf_counter()
-    function(*args)
-    return (perf_counter() - start) * 1_000
+def measure(search, graph, origin, destination, repetitions):
+    result = search(graph, origin, destination)
+    samples = []
+    for _ in range(repetitions):
+        start = perf_counter()
+        search(graph, origin, destination)
+        samples.append((perf_counter() - start) * 1_000)
+
+    tracemalloc.start()
+    try:
+        search(graph, origin, destination)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return statistics.median(samples), peak / 1024, result
 
 
-def benchmark_real_graph(graph, pair_count, seed):
-    vertices = list(graph.adjacency)
-    if len(vertices) < 2:
-        raise ValueError("O banco precisa ter pelo menos dois vertices.")
-
-    rng = random.Random(seed)
-    bfs_times = []
-    dfs_times = []
-
-    for _ in range(pair_count):
-        origin, destination = rng.sample(vertices, 2)
-        bfs_times.append(elapsed_ms(bfs, graph, origin, destination))
-        dfs_times.append(elapsed_ms(dfs, graph, origin))
-
-    return {
-        "vertices": graph.vertex_count(),
-        "edges": graph.edge_count(),
-        "bfs_median_ms": statistics.median(bfs_times),
-        "dfs_median_ms": statistics.median(dfs_times),
-    }
-
-
-def build_synthetic_graph(vertex_count):
-    """Cria um grafo direcionado alcancavel com aproximadamente 2 * V arestas."""
-    graph = Graph()
-
-    for index in range(vertex_count):
-        graph.add_stop(str(index))
-
-    for index in range(vertex_count - 1):
-        graph.add_edge(str(index), str(index + 1))
-
-    for index in range(vertex_count - 2):
-        graph.add_edge(str(index), str(index + 2))
-
-    return graph
-
-
-def benchmark_synthetic_graph(vertex_count, repetitions):
-    graph = build_synthetic_graph(vertex_count)
-    origin = "0"
-    destination = str(vertex_count - 1)
-
-    bfs_times = [
-        elapsed_ms(bfs, graph, origin, destination)
-        for _ in range(repetitions)
-    ]
-    dfs_times = [
-        elapsed_ms(dfs, graph, origin)
-        for _ in range(repetitions)
-    ]
-
-    return {
-        "vertices": graph.vertex_count(),
-        "edges": graph.edge_count(),
-        "bfs_median_ms": statistics.median(bfs_times),
-        "dfs_median_ms": statistics.median(dfs_times),
-    }
-
-
-def format_number(value):
-    return f"{value:,}".replace(",", ".")
-
-
-def format_ms(value):
-    return f"{value:.2f}".replace(".", ",")
-
-
-def render_markdown(database, pair_count, repetitions, seed, real, synthetic):
-    service_date = "nao informada"
-    graph = load_graph(database)
-    if graph.metadata.get("service_date"):
-        service_date = str(graph.metadata["service_date"])
-
+def render_markdown(graph, instances, repetitions):
+    timestamp = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec="seconds")
     lines = [
-        "# Resultados de benchmark",
+        "# Benchmark de BFS e DFS",
         "",
-        f"- Executado em: {datetime.now().astimezone().isoformat(timespec='seconds')}",
-        f"- Python: {platform.python_version()}",
-        f"- Sistema: {platform.platform()}",
-        f"- Processador: {platform.processor() or 'nao identificado'}",
-        f"- Banco: `{database}`",
-        f"- Data de servico do grafo: {service_date}",
-        f"- Semente pseudoaleatoria: {seed}",
-        f"- Pares aleatorios no grafo real: {pair_count}",
-        f"- Repeticoes por grafo sintetico: {repetitions}",
-        "",
-        "## Grafo real",
-        "",
-        "| Vertices | Arestas | BFS origem-destino (mediana) | DFS completa (mediana) |",
-        "| ---: | ---: | ---: | ---: |",
-        (
-            f"| {format_number(real['vertices'])} "
-            f"| {format_number(real['edges'])} "
-            f"| {format_ms(real['bfs_median_ms'])} ms "
-            f"| {format_ms(real['dfs_median_ms'])} ms |"
-        ),
-        "",
-        "## Grafos sinteticos",
-        "",
-        "| Vertices | Arestas | BFS completa (mediana) | DFS completa (mediana) |",
-        "| ---: | ---: | ---: | ---: |",
+        f"- Execução em {timestamp}, horário de São Paulo.",
+        f"- Python {platform.python_version()}, {platform.platform()}, "
+        f"{platform.processor() or 'processador não identificado'}.",
+        f"- Data de serviço do banco registrada como {graph.metadata.get('service_date', 'desconhecida')}.",
+        f"- Uma execução de aquecimento e mediana de {repetitions} repetições por algoritmo e consulta.",
+        "- Tempos medidos após carregar o SQLite e construir os recortes. A medição inclui "
+        "a construção do resultado da busca, com geometria, API e renderização fora do intervalo.",
+        "- Pico de alocações Python em execução adicional com tracemalloc, em KiB. "
+        "O grafo já estava em memória. A medição cobre a alocação incremental da busca.",
     ]
-
-    for row in synthetic:
-        lines.append(
-            f"| {format_number(row['vertices'])} "
-            f"| {format_number(row['edges'])} "
-            f"| {format_ms(row['bfs_median_ms'])} ms "
-            f"| {format_ms(row['dfs_median_ms'])} ms |"
-        )
-
+    for key, (origin, destination) in QUERIES.items():
+        if key not in instances:
+            continue
+        instance = instances[key]
+        if not instance.has_stop(origin):
+            lines.extend(["", f"## {INSTANCE_LABELS[key]}", "", "Origem de referência ausente."])
+            continue
+        lines.extend([
+            "",
+            f"## {INSTANCE_LABELS[key]}",
+            "",
+            (f"{instance.vertex_count():,} vértices e {instance.edge_count():,} arestas. "
+             f"Origem {origin}.").replace(",", "."),
+            "",
+            "| Consulta | Busca | Mediana (ms) | Pico (KiB) | Descobertas | Visitas | Arestas examinadas | Arestas do caminho |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
+        ])
+        queries = [("Alcance completo", None)]
+        if instance.has_stop(destination):
+            queries.append((f"Até {destination}", destination))
+        for label, target in queries:
+            for search in (bfs, dfs):
+                time_ms, peak, result = measure(search, instance, origin, target, repetitions)
+                distance = result["distance"]
+                lines.append(
+                    f"| {label} | {result['algorithm']} | {time_ms:.4f} | {peak:.1f} "
+                    f"| {result['discovered_count']} | {result['processed_count']} "
+                    f"| {result['edges_examined']} | {distance if distance is not None else '—'} |"
+                )
     lines.extend([
         "",
-        "Os tempos dependem do computador e devem ser regenerados no ambiente usado na apresentacao.",
+        "Na travessia completa, compare as contagens das duas buscas partindo da mesma origem. "
+        "Em consultas com destino, as ordens de visita determinam quanto trabalho cada busca "
+        "faz antes de parar. A BFS encerra ao retirar o destino da fila e a DFS ao descobri-lo.",
+        "",
+        "As diferenças de tempo refletem este computador, o alcance de cada origem e a "
+        "instrumentação de cada algoritmo. As medições das três instâncias ilustram a escala "
+        "do trabalho executado. O limite assintótico depende dos vértices e arestas examinados.",
         "",
     ])
     return "\n".join(lines)
 
 
-def parse_sizes(value):
-    sizes = tuple(int(item.strip()) for item in value.split(",") if item.strip())
-    if not sizes or any(size < 2 for size in sizes):
-        raise argparse.ArgumentTypeError(
-            "Informe tamanhos inteiros maiores ou iguais a 2."
-        )
-    return sizes
-
-
 def main():
-    parser = argparse.ArgumentParser(
-        description="Benchmark reproduzivel de BFS e DFS."
-    )
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
-    parser.add_argument("--pairs", type=int, default=30)
-    parser.add_argument("--repetitions", type=int, default=5)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--synthetic-sizes",
-        type=parse_sizes,
-        default=DEFAULT_SIZES,
-        help="Lista separada por virgulas.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        help="Arquivo Markdown opcional para salvar os resultados.",
-    )
+    parser.add_argument("--repetitions", type=int, default=21)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-
-    if args.pairs < 1 or args.repetitions < 1:
-        parser.error("--pairs e --repetitions devem ser positivos.")
+    if args.repetitions < 1:
+        parser.error("--repetitions deve ser positivo.")
 
     graph = load_graph(args.database)
-    real = benchmark_real_graph(graph, args.pairs, args.seed)
-    synthetic = [
-        benchmark_synthetic_graph(size, args.repetitions)
-        for size in args.synthetic_sizes
-    ]
-    markdown = render_markdown(
-        args.database,
-        args.pairs,
-        args.repetitions,
-        args.seed,
-        real,
-        synthetic,
-    )
-
+    markdown = render_markdown(graph, build_instances(graph), args.repetitions)
     print(markdown)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(markdown, encoding="utf-8")
-        print(f"Resultados salvos em: {args.output}")
 
 
 if __name__ == "__main__":

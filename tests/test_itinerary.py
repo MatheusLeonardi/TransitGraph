@@ -53,3 +53,33 @@ def test_itinerary_uses_shape_geometry_when_available():
         [-23.505, -46.605],
         [-23.51, -46.61]
     ]
+
+
+def test_itinerary_keeps_shape_gaps_and_approximate_connections_separate():
+    graph = create_route_graph()
+    graph.shape_points["S1"] = [(1, -23.50, -46.60), (2, -23.509, -46.61)]
+    graph.shape_points["S2"] = [(1, -23.51, -46.61)]
+    graph.add_edge_shape("A", "B", "R1", "T1", "S1", 1, 2)
+    graph.add_edge_shape("B", "C", "R1", "T2", "S2", 1, 1)
+
+    itinerary = build_itinerary(graph, ["A", "B", "C"])
+    assert itinerary["transfer_count"] == 0
+    assert itinerary["uses_gtfs_shapes"] is True
+    assert itinerary["has_approximate_geometry"] is True
+    assert [{key: segment[key] for key in ("source", "geometry")}
+            for segment in itinerary["legs"][0]["geometry_segments"]] == [
+        {"source": "gtfs", "geometry": [[-23.50, -46.60], [-23.509, -46.61]]},
+        {"source": "approximate", "geometry": [[-23.51, -46.61], [-23.52, -46.62]]},
+    ]
+
+
+def test_itinerary_does_not_bridge_disjoint_gtfs_shapes():
+    graph = create_route_graph()
+    graph.shape_points["S1"] = [(1, -23.50, -46.60), (2, -23.509, -46.61)]
+    graph.shape_points["S2"] = [(1, -23.511, -46.61), (2, -23.52, -46.62)]
+    graph.add_edge_shape("A", "B", "R1", "T1", "S1", 1, 2)
+    graph.add_edge_shape("B", "C", "R1", "T2", "S2", 1, 2)
+    itinerary = build_itinerary(graph, ["A", "B", "C"])
+    segments = itinerary["legs"][0]["geometry_segments"]
+    assert len(segments) == 2
+    assert segments[0]["geometry"][-1] != segments[1]["geometry"][0]

@@ -44,13 +44,18 @@ def main():
     )
 
     args = parser.parse_args()
-    service_date = date.fromisoformat(args.date)
+    try:
+        service_date = date.fromisoformat(args.date)
+    except ValueError:
+        parser.error("Informe uma data válida no formato AAAA-MM-DD.")
 
     print("=" * 55)
     print("TRANSITGRAPH - CONSTRUÇÃO DO GRAFO")
     print("=" * 55)
 
     graph, stats = import_gtfs(args.gtfs, service_date)
+    if graph.vertex_count() == 0:
+        parser.error("Nenhuma parada ativa nessa data. Verifique o calendário do GTFS.")
 
     print("\nIMPORTAÇÃO CONCLUÍDA!\n")
 

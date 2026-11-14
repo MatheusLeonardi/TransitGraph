@@ -501,7 +501,6 @@ button {
 }
 
 .algorithm-comparison-card p,
-.algorithm-metrics,
 .algorithm-path {
     margin-bottom: 9px;
 }
@@ -510,14 +509,14 @@ button {
     margin-top: 11px;
 }
 
-.visit-order strong,
 .visit-order small {
     display: block;
 }
 
 .visit-order ol {
     max-height: 180px;
-    margin: 8px 0 7px 23px;
+    margin: 8px 0 7px;
+    padding-left: 30px;
     overflow-y: auto;
     font-family: Consolas, monospace;
 }
@@ -732,4 +731,82 @@ footer {
     #cy {
         height: 400px;
     }
+}
+.topbar {
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.topbar-right,
+.instance-form {
+    flex-wrap: wrap;
+}
+
+.instance-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.instance-form select,
+.instance-form button,
+.algorithm-comparison-card button {
+    max-width: 100%;
+    padding: 7px 9px;
+    border: 1px solid #cdd8e6;
+    border-radius: 7px;
+    background: white;
+    color: #26344b;
+    font: inherit;
+}
+
+.instance-form button,
+.algorithm-comparison-card button,
+.visit-order summary {
+    cursor: pointer;
+}
+
+.algorithm-comparison-card button {
+    margin-top: 10px;
+}
+
+.visit-order details {
+    margin-top: 5px;
+}
+
+.visit-order summary {
+    font-weight: 600;
+}
+
+.geometry-debug {
+    margin: 12px 0;
+    font-size: 13px;
+}
+
+.geometry-debug summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.geometry-debug select {
+    max-width: 100%;
+}
+
+.geometry-debug pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 8px 0;
+}
+
+.geometry-debug label:has(input) {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-right: 12px;
+}
+
+.geometry-debug input[type="checkbox"] {
+    width: auto;
+    margin: 0;
 }

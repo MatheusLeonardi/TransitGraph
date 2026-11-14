@@ -11,13 +11,13 @@ def bfs(graph, origin, destination=None):
 
     queue = deque([origin])
 
-    discovered = {origin}
 
     parent = {
         origin: None
     }
 
     visit_order = []
+    edges_examined = 0
 
     while queue:
 
@@ -28,11 +28,11 @@ def bfs(graph, origin, destination=None):
         if current == destination:
             break
 
-        for neighbor in graph.get_neighbors(current):
+        for neighbor in graph.adjacency[current]:
+            edges_examined += 1
 
-            if neighbor not in discovered:
+            if neighbor not in parent:
 
-                discovered.add(neighbor)
 
                 parent[neighbor] = current
 
@@ -40,7 +40,7 @@ def bfs(graph, origin, destination=None):
 
     path = None
 
-    if destination is not None and destination in visit_order:
+    if destination is not None and destination in parent:
 
         path = []
 
@@ -62,7 +62,8 @@ def bfs(graph, origin, destination=None):
         # "visitado" significa removido da fila e efetivamente processado.
         "visited_count": len(visit_order),
         "processed_count": len(visit_order),
-        "discovered_count": len(discovered),
+        "discovered_count": len(parent),
+        "edges_examined": edges_examined,
         "path": path,
         "distance": len(path) - 1 if path else None,
         "found": path is not None if destination is not None else None

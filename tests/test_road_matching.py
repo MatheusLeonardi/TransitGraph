@@ -1,3 +1,6 @@
+import io
+import json
+import urllib.error
 import sqlite3
 
 from backend.services import road_matching_service
@@ -144,3 +147,61 @@ def test_rejected_match_keeps_gtfs_fallback(monkeypatch, tmp_path):
     assert result["uses_road_matching"] is False
     assert result["road_matching_status"] == "fallback-gtfs"
     assert result["legs"][0]["geometry_source"] == "gtfs-coherence-fallback"
+
+
+def test_refinement_preserves_gaps_and_updates_continuous_segments(monkeypatch, tmp_path):
+    database = tmp_path / "graph.db"
+    geometry = [[-23.5297, -46.5516], [-23.5266, -46.5517]]
+    matched = [geometry[0], [-23.5280, -46.5515], geometry[-1]]
+    calls = []
+
+    def fake_match(points, _url):
+        calls.append(points)
+        return {"accepted": True, "source": "osrm", "geometry": matched,
+                "confidence": 0.98, "matched_distance": 350}
+
+    monkeypatch.setenv("TRANSITGRAPH_MAP_MATCHING", "1")
+    monkeypatch.setattr(road_matching_service, "_request_osrm_match", fake_match)
+    gtfs = {"source": "gtfs", "geometry": geometry}
+    approximate = {"source": "approximate", "geometry": geometry[::-1]}
+    mixed = {"geometry": geometry, "geometry_segments": [gtfs, approximate]}
+    continuous = {"geometry": geometry, "geometry_segments": [gtfs]}
+    result = road_matching_service.refine_itinerary_geometry(
+        {"uses_gtfs_shapes": True, "legs": [mixed, continuous]}, database
+    )
+
+    assert calls == [geometry]
+    assert mixed["geometry_segments"][0]["source"] == "osrm"
+    assert mixed["geometry_segments"][0]["geometry"] == matched
+    assert mixed["geometry_segments"][1]["geometry"] == geometry[::-1]
+    assert continuous["geometry_segments"][0]["source"] == "osrm"
+    assert continuous["geometry_segments"][0]["geometry"] == matched
+    assert result["uses_road_matching"] is True
+
+
+def test_coherence_accepts_road_points_between_sparse_gtfs_samples():
+    original = [[-23.5, -46.6], [-23.5, -46.594]]
+    matched = [original[0], [-23.50025, -46.597], original[-1]]
+    assert road_matching_service.is_coherent_match(original, matched, 0.95)
+
+
+def test_coherence_rejects_shortcut_ignoring_original_curve():
+    original = [[-23.5, -46.6], [-23.5012, -46.597], [-23.5, -46.594]]
+    shortcut = [original[0], original[-1]]
+    assert not road_matching_service.is_coherent_match(original, shortcut, 0.95)
+
+
+def test_control_points_keep_both_ends_and_cover_the_trace():
+    geometry = [[-23.5, -46.6 + i / 10000] for i in range(101)]
+    points = road_matching_service._control_points(geometry)
+    assert len(points) == road_matching_service.MAX_CONTROL_POINTS
+    assert points[0] == geometry[0]
+    assert points[-1] == geometry[-1]
+    assert geometry[50][1] - 0.0002 <= points[len(points) // 2][1] <= geometry[50][1] + 0.0002
+
+
+def test_cache_separates_osrm_servers():
+    geometry = [[-23.5, -46.6], [-23.5, -46.594]]
+    assert road_matching_service._cache_key(geometry, "https://a.example") != (
+        road_matching_service._cache_key(geometry, "https://b.example")
+    )

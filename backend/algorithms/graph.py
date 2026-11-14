@@ -11,7 +11,7 @@ class Graph:
         # Linhas que realizam cada conexão
         self.edge_routes = {}
 
-        # Tempo programado médio (segundos) por conexão direcionada.
+        # Mediana do tempo programado (segundos) por conexão direcionada.
         self.edge_weights = {}
 
         # Metadados das linhas GTFS
@@ -19,6 +19,7 @@ class Graph:
 
         # Viagem/shape representativo de cada conexão por linha
         self.edge_shapes = {}
+        self.trip_edges = {}
 
         # Pontos dos shapes são usados na etapa de persistência. O carregamento
         # da aplicação mantém esses pontos apenas no SQLite para economizar RAM.
@@ -106,6 +107,10 @@ class Graph:
                 "to_sequence": to_sequence,
                 "headsign": headsign
             }
+
+    def add_trip_edge(self, source, target, route_id, reference):
+        """Guarda cada ocorrência dirigida, inclusive passagens repetidas."""
+        self.trip_edges.setdefault((source, target, route_id), []).append(reference)
 
     def get_neighbors(self, stop_id):
         return list(self.adjacency.get(stop_id, {}).keys())
