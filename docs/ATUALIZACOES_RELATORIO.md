@@ -1,9 +1,10 @@
 # Atualização do relatório técnico para a entrega
 
-Revisão de 14/11/2026. O DOCX e o PDF existentes registram uma versão
-anterior. Use o mapa abaixo para atualizar o documento editável e então
-exportar a versão de entrega. A coluna de páginas usa o PDF atual como
-referência.
+Revisão de 14/11/2026. O mapa abaixo registra as correções feitas a partir
+do PDF anterior. A paginação da coluna se refere ao original preservado.
+A versão atual está disponível em [DOCX](../output/documents/TransitGraph_Relatorio_Tecnico_Final.docx)
+e [PDF de revisão](../output/documents/TransitGraph_Relatorio_Tecnico_Final.pdf).
+Os campos destacados ainda precisam de confirmação humana.
 
 | Página e seção | Ajuste com evidência |
 |---|---|
