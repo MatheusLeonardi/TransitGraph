@@ -10,10 +10,10 @@
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
     <link rel="stylesheet"
-          href="{{ url_for('static', filename='css/style.css', v='20261105-12') }}">
+          href="{{ url_for('static', filename='css/style.css', v='20261114-4') }}">
 </head>
 
-<body>
+<body data-instance="{{ active_instance }}">
 
     <aside class="sidebar">
         <div class="brand">
@@ -60,6 +60,15 @@
             </div>
 
             <div class="topbar-right">
+                <form class="instance-form" action="/" method="get">
+                    <label for="network-instance">Instância da rede</label>
+                    <select id="network-instance" name="instance">
+                        {% for key, label in instances.items() %}
+                        <option value="{{ key }}"{% if key == active_instance %} selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">Carregar</button>
+                </form>
                 <span id="data-date" class="data-date"></span>
                 <span class="live-status">
                     <span class="status-dot"></span>
@@ -110,6 +119,16 @@
                 </div>
 
                 <div id="map"></div>
+                <details id="geometry-debug" class="geometry-debug">
+                    <summary>Diagnóstico geográfico</summary>
+                    <p id="geometry-debug-instruction">Calcule um trajeto e selecione uma conexão.</p>
+                    <label for="geometry-segment">Conexão</label>
+                    <select id="geometry-segment" disabled></select>
+                    <pre id="geometry-debug-data"></pre>
+                    <label><input type="checkbox" id="geometry-show-gtfs" checked> GTFS original (roxo)</label>
+                    <label><input type="checkbox" id="geometry-show-osrm" checked> Proposta OSRM (verde)</label>
+                    <label><input type="checkbox" id="geometry-show-final" checked> Traçado exibido (preto)</label>
+                </details>
 
                 <div class="map-footer">
                     <span><i class="legend-stop"></i> Paradas de ônibus</span>
@@ -183,8 +202,8 @@
                             Executar BFS
                         </button>
 
-                        <button id="dfs-button" class="secondary-button">
-                            Executar DFS
+                        <button id="dfs-button" class="secondary-button" aria-describedby="dfs-help">
+                            Analisar alcance (DFS)
                         </button>
 
                         <button id="weighted-button" class="weighted-button">
@@ -196,7 +215,9 @@
                         </button>
                     </div>
 
-                    <div id="algorithm-result" class="result-box">
+                    <small id="dfs-help">Deixe o destino vazio para consultar toda a cobertura a partir da origem.</small>
+
+                    <div id="algorithm-result" class="result-box" aria-live="polite">
                         Selecione as paradas para consultar a ordem de visita
                         e comparar o comportamento dos algoritmos.
                     </div>
@@ -282,7 +303,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='20261105-12') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='20261114-5') }}"></script>
 
 </body>
 </html>

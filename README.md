@@ -19,6 +19,12 @@ A direção da aresta importa porque uma viagem pode percorrer somente um dos
 sentidos entre duas paradas. Arestas repetidas por diferentes viagens são
 consolidadas, preservando as linhas associadas.
 
+As adjacências de saída ficam em dicionários ordenados pela inserção, com
+uma entrada por vizinho. A topologia ocupa O(V + E). Uma matriz de adjacência
+para a rede completa teria 433.139.344 posições. O SQLite preserva a ordem
+das arestas na recarga. Essa ordem decide empates na BFS e influencia a
+árvore de descoberta da DFS.
+
 Com o GTFS incluído e a data `2026-11-01`, o grafo possui 20.812 vértices e
 27.218 arestas direcionadas.
 
@@ -27,16 +33,20 @@ Com o GTFS incluído e a data `2026-11-01`, o grafo possui 20.812 vértices e
 ### BFS — menor quantidade de conexões
 
 A BFS explora o grafo em níveis usando uma fila. No TransitGraph, ela encontra
-um caminho entre origem e destino com o menor número de arestas. Como o grafo
-não possui pesos, isso significa menor quantidade de conexões entre paradas,
-mas não necessariamente menor tempo de viagem.
+um caminho entre origem e destino com o menor número de arestas. A busca
+ignora os pesos de tempo mantidos para a consulta independente com Dijkstra.
 
 ### DFS — exploração e alcançabilidade
 
-A DFS usa uma pilha e aprofunda um ramo antes de retroceder. Ela é utilizada
-para identificar as paradas alcançáveis a partir de uma origem. Quando recebe
-um destino, também pode encontrar um caminho, mas não garante que ele seja o
-menor.
+A DFS usa uma pilha de vértices ativos com o iterador de cada adjacência.
+Sem destino, mede a cobertura direcionada de uma parada e informa quantas
+paradas da instância ficam fora dessa cobertura. Com destino, a DFS para
+na descoberta e pode fornecer um caminho maior que o mínimo. Ao esgotar os
+vizinhos de um vértice, a DFS o finaliza e retorna ao quadro anterior.
+
+Sem destino, ambas as buscas visitam todo o subgrafo alcançável a partir da
+origem. A análise de componentes fracos usa outra DFS sobre a projeção
+que ignora o sentido das arestas.
 
 ### Comparação
 
@@ -49,25 +59,32 @@ menor.
 | Complexidade | `O(V + E)` | `O(V + E)` |
 | Memória assintótica | `O(V)` | `O(V)` |
 
-A interface mostra, para cada algoritmo, a ordem numerada de visita, o total
-de vértices descobertos e processados, o caminho e o tempo de execução.
+A interface mostra a ordem numerada de visita, os totais de descobertas e
+visitas, as arestas examinadas, o caminho e o tempo da busca. Na BFS, cada
+visita é uma retirada da fila. Na DFS, cada visita é uma descoberta e a
+ordem de finalização aparece à parte.
 
 ## Qualidade da geometria
 
-As paradas são associadas aos pontos do `shapes.txt` por programação dinâmica,
-buscando a melhor sequência monotônica global. Associações acima de 150 metros
-são rejeitadas e desenhadas com o fallback simplificado, evitando trajetos que
-saltem para regiões incorretas.
+As conexões preservam as ocorrências de parada, viagem, sentido e shape. A
+seleção procura manter a mesma viagem para conexões consecutivas de uma linha.
+O diagnóstico mostra quando o caminho topológico exige trocar de viagem.
 
-Na base de 01/11/2026, 76.651 referências de aresta possuem geometria validada
-e 60 foram rejeitadas. Entre as referências aceitas, a distância mediana entre
-parada e shape é 12,1 metros e o percentil 95 é 48,4 metros.
+O importador usa as distâncias GTFS quando existem nos dois arquivos e são
+consistentes. No feed incluído, as paradas são projetadas nos segmentos do
+shape em ordem crescente. Códigos de parada consecutivos com coordenadas
+iguais podem ocupar a mesma posição. O SQLite inclui 76.987 ocorrências,
+das quais 13 desse tipo ficam explicitamente sem trajeto de rua confirmado.
 
-Quando um shape possui intervalos maiores que 60 metros, a aplicação tenta
-refinar o traçado com o serviço de *map matching* do OSRM sobre a malha do
-OpenStreetMap. O resultado só é aceito quando preserva extremos, comprimento,
-sentido e proximidade do corredor original. Geometrias aprovadas são mantidas
-em cache no SQLite; qualquer falha utiliza automaticamente o shape GTFS.
+O traçado oficial é exibido em primeiro lugar. Trechos com baixa resolução
+ou ligações aproximadas aparecem tracejados. O OSRM pode refinar fragmentos
+esparsos, desde que preserve os pontos de controle em ordem e mantenha a
+geometria dentro dos limites de confiança e desvio. O perfil público prediz
+trajetos de carro e pode divergir de corredores exclusivos de ônibus.
+
+Use **Diagnóstico geográfico**, abaixo do mapa, para selecionar uma conexão
+e comparar o GTFS, a proposta do OSRM e o traçado final. Consulte também a
+[auditoria geográfica](docs/AUDITORIA_GEOMETRIA.md).
 
 O refinamento pode ser desativado:
 
@@ -122,16 +139,16 @@ python -m venv venv
 python -m pip install -r requirements.txt
 ```
 
-### 2. Construir o banco a partir do GTFS
+### 2. Usar o banco incluído ou reconstruí-lo
 
-O ZIP padrão deve estar em `data/raw/_sptrans_gtfs.zip`. A data deve estar no
+O checkout inclui o banco pronto para a demonstração. Para reconstruí-lo, o ZIP padrão deve estar em `data/raw/_sptrans_gtfs.zip`. A data deve estar no
 período de validade de `calendar.txt`.
 
 ```powershell
 python scripts/build_graph.py --date 2026-11-01
 ```
 
-Também é possível informar caminhos diferentes:
+Também é possível informar caminhos diferentes.
 
 ```powershell
 python scripts/build_graph.py `
@@ -139,6 +156,9 @@ python scripts/build_graph.py `
   --gtfs D:\dados\sptrans_gtfs.zip `
   --database data\processed\transitgraph.db
 ```
+
+Para iniciar a aplicação com outro banco, defina `TRANSITGRAPH_DATABASE`
+com o caminho desse arquivo antes de executar `python run.py`.
 
 Esse comando importa o GTFS, constrói o grafo e salva o banco SQLite usado pela
 aplicação. As geometrias são compactadas no banco para reduzir o tamanho sem
@@ -165,21 +185,22 @@ python run.py
 python -m pytest -v
 ```
 
-Os testes cobrem os algoritmos, ordem de visita, entradas inválidas,
-componentes conexos, persistência das geometrias, refinamento viário e a API
-de comparação.
+Os testes cobrem ciclos, direção, origem igual ao destino, isolamento,
+alternativas de comprimentos diferentes, ordem de adjacência, retornos e DFS
+com 5.000 vértices em cadeia. Também cobrem API, recortes, persistência, importação
+e refinamento viário.
 
 ## Benchmark reproduzível
 
-Para medir BFS e DFS no banco real e em grafos sintéticos:
+Para medir BFS e DFS nas três instâncias do GTFS, com e sem destino:
 
 ```powershell
 python scripts/benchmark.py --output docs/BENCHMARK_RESULTADOS.md
 ```
 
-O script usa semente fixa, registra o ambiente da execução e calcula medianas
-de várias medições. Os tempos variam conforme o computador; portanto, o grupo
-deve executar novamente esse comando na máquina usada na apresentação.
+O script registra medianas, contagens e pico de alocações Python por busca.
+O carregamento, a montagem dos recortes e a renderização ficam fora da medição.
+Consulte os [resultados do benchmark](docs/BENCHMARK_RESULTADOS.md).
 
 ## Estrutura principal
 
@@ -215,11 +236,37 @@ run.py               # inicialização da aplicação
 - o cache do refinamento viário fica em `data/runtime/road_cache.db`, separado
   do banco versionado do grafo;
 - componentes fracos ignoram a direção das arestas durante essa análise;
-- a interface limita a ordem exibida às primeiras 200 visitas para manter a
-  resposta legível, preservando o total processado.
+- a interface e a API retornam até 200 registros de cada ordem e mantêm as
+  contagens completas;
+- o importador usa as regras semanais de `calendar.txt`. Exceções de calendário
+  de outros feeds e frequências do serviço ficam fora do modelo atual;
+- Leaflet, Cytoscape.js e o mapa-base usam recursos externos. As buscas e os
+  resultados textuais também funcionam com o navegador sem acesso externo.
 
-## Dados
+## Dados e instâncias
 
-Antes de redistribuir o GTFS, confirme os termos de uso e atribuição da fonte.
-Registre no relatório a data de obtenção do arquivo, a data de serviço usada e
-as estatísticas geradas pelo comando de construção.
+O ZIP versionado identifica a SPTrans em `agency.txt` e aponta para a versão
+`311026`. A data de serviço desta auditoria é **01/11/2026**. O
+`calendar.txt` do ZIP declara validade de 01/10/2023 a 01/05/2027.
+[SPTrans](https://www.sptrans.com.br/desenvolvedores) ·
+[GTFS Schedule Reference](https://gtfs.org/documentation/schedule/reference/).
+
+O seletor usa a mesma base SQLite. Cada recorte preserva os sentidos
+das conexões presentes no GTFS.
+
+| Instância | Critério | Paradas | Conexões |
+|---|---|---:|---:|
+| Pequena | Subgrafo induzido pelas paradas a até duas arestas direcionadas da origem `480012875`, Vila Leopoldina | 7 | 6 |
+| Intermediária | Arestas atendidas pelas linhas `2025-10` ou `172K-10` | 177 | 181 |
+| Grande | Rede de ônibus completa para a data de serviço | 20.812 | 27.218 |
+
+Os recortes delimitam o alcance e as alternativas de trajeto. No recorte de
+linhas, o Dijkstra usa os pesos por aresta da rede completa. Em outro banco,
+a disponibilidade dos recortes depende da parada e das linhas de referência.
+
+## Integrantes e apresentação
+
+O relatório existente identifica Matheus Leonardi e Richard Peghin da Silva.
+O grupo precisa confirmar a lista completa, os RAs e as contribuições antes
+da entrega. Consulte o [roteiro de 10 minutos](docs/ROTEIRO_APRESENTACAO.md)
+e a [auditoria](docs/AUDITORIA.md).

@@ -8,3 +8,16 @@ venv/
 Thumbs.db
 tmp/
 data/runtime/
+
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+node_modules/
+~$*
+*.tmp
+*.db-wal
+*.db-shm
+*.db-journal

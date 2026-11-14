@@ -1,99 +1,103 @@
-# Roteiro de apresentação — TransitGraph
+# Roteiro da apresentação e demonstração ao vivo
 
-Sugestão de duração: 12 a 15 minutos, seguida de perguntas.
+**17/11/2026 · 10 minutos · Demonstração de 4:50 a 8:10**
 
-## Integrante 1 — problema e dados
+## Preparar no PowerShell
 
-- apresentar o problema de conectividade da rede de ônibus;
-- explicar que os dados são GTFS da SPTrans;
-- mostrar a escala: 20.812 vértices e 27.218 arestas;
-- definir cada parada como vértice e cada deslocamento consecutivo como aresta
-  direcionada.
+Use Python 3.14 e a cópia do projeto em `D:\transitgraph`. Na primeira
+preparação, instale as dependências com acesso ao índice Python. Se a
+`.venv` já estiver pronta, pule a criação e instalação.
 
-## Integrante 2 — representação do grafo
+```powershell
+Set-Location D:\transitgraph
+python --version
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pytest -q
+```
 
-- explicar a lista de adjacência;
-- mostrar que uma aresta pode ser atendida por várias linhas;
-- justificar por que o grafo é direcionado;
-- explicar a persistência no SQLite e a geometria do `shapes.txt`.
+Use o SQLite já incluído. Se houver uma cópia antiga do servidor em execução,
+encerre-a com **Ctrl+C** no terminal que a iniciou. Abra o PowerShell da
+apresentação e rode:
 
-## Integrante 3 — BFS
+```powershell
+Set-Location D:\transitgraph
+$env:TRANSITGRAPH_DATABASE = (Resolve-Path .\data\processed\transitgraph.db).Path
+$env:TRANSITGRAPH_MAP_MATCHING = "0"
+.\.venv\Scripts\python.exe run.py
+```
 
-- explicar a fila e a exploração por níveis;
-- apresentar complexidade `O(V + E)`;
-- demonstrar que a BFS garante o menor caminho em quantidade de arestas;
-- deixar claro que isso não significa menor tempo de viagem.
+Abra [TransitGraph](http://127.0.0.1:5000) e, em outro terminal, confirme
+`Invoke-RestMethod http://127.0.0.1:5000/api/health`. O resultado esperado
+é `online`, 20.812 vértices, 27.218 arestas. Deixe a aplicação aberta junto
+dos slides.
 
-## Integrante 4 — DFS
+## Sequência cronometrada
 
-- explicar a pilha e o aprofundamento antes do retrocesso;
-- apresentar complexidade `O(V + E)`;
-- relacionar a DFS à análise de alcançabilidade;
-- comparar a ordem de visita com a BFS.
+| Relógio | Ação |
+|---|---|
+| 0:00–2:25 | Slides 1–4. Problema, fonte, instâncias e modelagem. |
+| 2:25–4:05 | Slides 5–6. Explique fila e pilha com o exemplo didático. |
+| 4:05–4:50 | Slide 7. Mostre 16 e 3.225 arestas no mesmo par de paradas. |
+| 4:50–5:55 | Slide 8. Compare na pequena, depois rode DFS sem destino e abra a finalização. |
+| 5:55–6:45 | Slide 8. Na intermediária, rode a BFS e mostre a troca de linha. |
+| 6:45–8:10 | Slide 8. Na completa, mostre o alcance de uma origem e o caso sem caminho. |
+| 8:10–10:00 | Slides 9–10. Testes, resultados e limites do modelo. |
 
-## Integrante 5 — aplicação, resultados e limitações
+## Consultas na interface
 
-- mostrar mapa, linhas, baldeações e sentido;
-- apresentar componentes fracamente conexos;
-- explicar validação das geometrias;
-- concluir com limitações e possíveis extensões.
+1. **Pequena · Dois níveis na Vila Leopoldina.** Selecione no topo e clique
+   **Carregar**. Confirme 7 paradas e 6 conexões. Digite origem `480012875`
+   e destino `480014889`. Clique **Comparar BFS × DFS**. Ambas encontram
+   duas arestas e o caminho `480012875 → 480014888 → 480014889`. A BFS
+   visita `480012875, 480014888, 4811488, 480014889`. A DFS descobre
+   `480012875, 480014888, 480014889`.
+2. Deixe o **destino em branco** e clique **Analisar alcance (DFS)**. Mostre
+   **7 de 7** alcançáveis e expanda **Ordem de finalização (retornos)**. A
+   origem aparece por último. A lista é `480014889, 480014888, 4814601,
+   480012828, 480012830, 4811488, 480012875`.
+3. **Intermediária · Linhas 2025-10 e 172K-10.** Carregue a instância e
+   confirme 177 paradas e 181 conexões. Digite `8812664` (Sesc Santana) e
+   `940004410` (Av. Júlio Buono, 2007). Clique **Executar BFS**. Mostre as
+   **25 arestas** e a troca de `2025-10` para `172K-10`. Se o mapa estiver
+   disponível, indique o caminho desenhado. A troca também aparece no texto.
+4. **Grande · Rede completa.** Carregue a instância. Digite `560009135`
+   (Av. Jaceguava, 1354) e deixe o destino vazio. Clique **Analisar alcance
+   (DFS)**. A aplicação mostra **20 de 20.812** alcançáveis. Preencha
+   `5506671` (Av. Morumbi, 5595) e clique **Comparar BFS × DFS**.
+   As duas buscas exibem ausência de caminho e **20 visitas** cada.
 
-## Demonstrações preparadas
+Se houver tempo em perguntas, a rede completa também permite comparar
+`480012875 → 480014632`. São **16 arestas** e 640 visitas na BFS, e
+**3.225 arestas** e 14.065 visitas na DFS. Essa consulta mais longa fica
+registrada no slide 7. Use **Diagnóstico geográfico** para explicar a
+diferença entre um recorte de shape e um ajuste viário aceito. As capturas
+da Conde de Frontin permitem explicar isso com o OSRM desligado.
+[Diagnóstico e capturas](AUDITORIA_GEOMETRIA.md)
 
-### 1. Trajeto com linhas e baldeação
+## Se os serviços externos falharem
 
-- origem: `8812664` — Sesc Santana;
-- destino: `940004410` — Av. Júlio Buono, 2007;
-- resultado esperado: 25 arestas, linhas `2025-10` e `172K-10`, uma
-  baldeação e geometria GTFS no mapa.
+- Continue na interface pelos textos, caminhos, ordens e contagens. O
+  navegador testado manteve essas funções com tráfego externo bloqueado.
+  Leaflet e Cytoscape.js usam CDN e os tiles vêm do OpenStreetMap.
+- Para mostrar a visualização, tenha a [captura da comparação](apresentacao/comparacao-pequena.png)
+  e a [captura do grafo pequeno](apresentacao/grafo-pequena.png) abertas.
+- Se o navegador não carregar a interface, teste o servidor no terminal
+  com o Flask aberto. A resposta esperada contém duas arestas em ambas
+  as buscas e as ordens do exemplo pequeno.
 
-### 2. Diferença clara entre BFS e DFS
+```powershell
+$entrada = @{ origin = '480012875'; destination = '480014889' } | ConvertTo-Json -Compress
+$uri = 'http://127.0.0.1:5000/api/algorithms/compare?instance=local'
+$resposta = Invoke-RestMethod -Method Post -Uri $uri -ContentType 'application/json' -Body $entrada
+$resposta.bfs | Select-Object distance, path, visited_order
+$resposta.dfs | Select-Object distance, path, visited_order, finish_order
+```
 
-- origem: `480012875` — R. Br. de Jundiaí, 545;
-- destino: `480014632` — R. Pio XI, 571;
-- resultado observado na base de 01/11/2026:
-  - BFS: 16 arestas;
-  - DFS: 1.114 arestas.
+- Se a porta 5000 estiver ocupada por outro aplicativo, use uma porta livre
+  com `.\.venv\Scripts\python.exe -m flask --app backend.app:app run --port 5001`
+  e troque a porta nas URLs.
 
-Esse caso evidencia que a DFS pode encontrar um caminho válido muito maior,
-enquanto a BFS garante o menor caminho no grafo não ponderado.
-
-### 3. Ausência de caminho direcionado
-
-- origem: `560009135` — Av. Jaceguava, 1354;
-- destino: `5506671` — Av. Morumbi, 5595;
-- resultado esperado: nenhum caminho direcionado encontrado.
-
-## Perguntas prováveis
-
-### Por que não usar Dijkstra?
-
-O tema exige BFS e DFS. Como as arestas não possuem peso no modelo principal,
-a BFS é suficiente para minimizar a quantidade de conexões. Dijkstra seria uma
-extensão para tempo ou distância ponderada.
-
-### A linha no mapa respeita as ruas?
-
-Ela utiliza a sequência oficial do `shapes.txt`. A associação parada–shape é
-monotônica e rejeita distâncias acima de 150 metros. O sistema não faz uma
-validação independente das tags `oneway` do OpenStreetMap.
-
-### A rota é a mais rápida?
-
-Não. Ela possui o menor número de arestas. O sistema não considera trânsito,
-tempo de espera ou horários em tempo real.
-
-### Como as baldeações são escolhidas?
-
-Depois que a BFS define o caminho de paradas, uma programação dinâmica escolhe
-entre as linhas disponíveis em cada aresta procurando reduzir trocas, sem
-alterar o caminho encontrado pela BFS.
-
-## Checklist antes de apresentar
-
-- reconstruir o banco com a mesma data usada no relatório;
-- executar `python -m pytest -q`;
-- testar os três exemplos acima;
-- abrir o mapa antes da apresentação;
-- manter uma captura de tela como alternativa para falhas de internet;
-- confirmar que cada integrante conhece sua parte e a limitação da BFS.
+[Conteúdo dos slides](CONTEUDO_SLIDES.md) · [Divisão dos cinco integrantes](DIVISAO_APRESENTACAO.md) ·
+[Perguntas do professor](PERGUNTAS_PROFESSOR.md)

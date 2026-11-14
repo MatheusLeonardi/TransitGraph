@@ -1,145 +1,49 @@
-# Atualizacoes necessarias no relatorio tecnico
+# Atualização do relatório técnico para a entrega
 
-Este arquivo registra o estado verificado do TransitGraph em 02/11/2026. Ele
-serve como base para atualizar o documento editavel antes de gerar o PDF final.
+Revisão de 14/11/2026. O DOCX e o PDF existentes registram uma versão
+anterior. Use o mapa abaixo para atualizar o documento editável e então
+exportar a versão de entrega. A coluna de páginas usa o PDF atual como
+referência.
 
-## 1. Numeros verificados
+| Página e seção | Ajuste com evidência |
+|---|---|
+| 1 e 10 · Capa e contribuições | Completar nomes, RAs e contribuições confirmadas. |
+| 3–5 · Dados e grafo | Manter o total da rede completa, 20.812 paradas e 27.218 arestas. Acrescentar os recortes selecionáveis de 7/6 e 177/181 vértices/arestas. Indicar os pesos por mediana de segundos para Dijkstra e a contagem unitária para BFS. |
+| 5–6 · Buscas e itinerário | Descrever a pilha explícita de quadros da DFS, a descoberta e a finalização. A API guarda até 200 registros de cada ordem retornada e mantém os totais. A montagem do itinerário tenta continuar na mesma viagem em cada sequência da mesma linha. |
+| 6–7 · Geometria e API | Registrar 76.987 ocorrências armazenadas e 13 conexões colocalizadas sem trajeto de rua confirmado. Explicar o sinal tracejado e o refinamento opcional. O OSRM em perfil de carro é uma inferência cartográfica. [Auditoria geográfica](AUDITORIA_GEOMETRIA.md) |
+| 7 · Testes e benchmark | Substituir “30 passed” por **67 testes aprovados**, confirmados em Python 3.14. Atualizar a metodologia. As tabelas atuais medem as três instâncias reais, com 21 repetições e modalidades com e sem destino. [Benchmark](BENCHMARK_RESULTADOS.md) |
+| 8–9 · Figuras e comparação | Atualizar as telas. O caso `600012584 → 3609172` tem BFS com 34 arestas e 3.258 visitas, DFS com 3.872 arestas e 6.427 visitas. O exemplo preferido dos slides, `480012875 → 480014632`, tem BFS com 16 arestas e 640 visitas, DFS com 3.225 arestas e 14.065 visitas. [Captura atual da comparação](apresentacao/comparacao-pequena.png) |
+| 9–10 · Escopo e limitações | Tamanhos das componentes fracas permanecem 20.797, 11, 2 e 2. O seletor já existe. Declarar qualidade variável do mapa, dependências externas e ausência de verificação operacional de passagem e horários. |
+| 11 · Uso de IA | Atualizar a descrição de uso e separar evidências automatizadas desta auditoria das verificações humanas de fato realizadas pelo grupo. |
 
-Banco `data/processed/transitgraph.db`, data de servico 01/11/2026:
+## Dados e fonte
 
-| Medida | Valor |
-| --- | ---: |
-| Paradas no grafo | 20.812 |
-| Arestas direcionadas | 27.218 |
-| Associacoes linha-aresta | 76.711 |
-| Viagens ativas processadas | 1.774 |
-| Shapes ativos | 1.774 |
-| Associacoes linha-aresta com geometria validada | 76.651 |
-| Associacoes rejeitadas por distancia ao shape | 60 |
-| Componentes fracamente conexas | 4 |
-| Tamanho da maior componente | 20.797 |
+O GTFS versionado identifica a SPTrans e a versão 311026. A data de
+serviço da reconstrução é 01/11/2026. O SHA-256 do ZIP é
+`a948ac3b23507ac456d94a1c40dde94740d057c82b7648ee8ec861bd2be9e1ac`.
+Confirme com quem coletou os dados a data de obtenção.
+[SPTrans](https://www.sptrans.com.br/desenvolvedores) ·
+[Especificação GTFS](https://gtfs.org/documentation/schedule/reference/)
 
-## 2. Correcao da secao sobre shapes e ruas
+## Confirmações do grupo
 
-Substituir a afirmacao de que `shapes.txt` nao e usado pelo texto abaixo:
+- **Identificação** Confira os cinco nomes completos e os respectivos RAs.
+  A capa contém campos em aberto.
+- **Contribuições** Descreva o que cada pessoa fez, com os arquivos,
+  experimentos ou materiais correspondentes. A divisão da fala serve ao
+  ensaio.
+- **Escopo da disciplina** Confira o enunciado integral e a proposta
+  aprovada. Confirme se Tarjan, pontes, articulações ou simulação de
+  fechamento foram compromissos adicionais.
+- **IA e revisão humana** Codex (OpenAI) apoiou as auditorias, as correções
+  técnicas, os testes e a elaboração da documentação e do material
+  didático. O relatório existente registra Claude (Anthropic) na revisão
+  inicial e no rascunho. Confirme essa informação e registre quais pessoas
+  revisaram o código, repetiram os testes ou validaram a apresentação.
+- **Versão final** Depois da aprovação do grupo, atualize o DOCX e exporte
+  o PDF. Confira a capa, as figuras, as referências, a tabela de IA e a
+  legibilidade das tabelas em todas as páginas.
 
-> O arquivo `shapes.txt` fornece a geometria oficial dos itinerarios. Para cada
-> viagem ativa, as paradas sao associadas aos pontos do shape em ordem de
-> percurso por programacao dinamica. Associacoes cuja parada fica a mais de 150
-> metros do ponto selecionado sao rejeitadas. Depois que BFS ou DFS determina o
-> caminho no grafo de paradas, a aplicacao usa essas geometrias somente para
-> desenhar o itinerario; elas nao alteram a ordem nem a corretude da busca.
-
-Acrescentar a explicacao sobre o refinamento viario:
-
-> Em trechos nos quais o shape possui intervalos maiores que 60 metros, a
-> aplicacao pode consultar o OSRM para ajustar a polilinha a malha viaria do
-> OpenStreetMap. O resultado so e aceito quando respeita limites de confianca,
-> comprimento e proximidade com a geometria GTFS. Falhas, resultados incoerentes
-> ou indisponibilidade do servico preservam integralmente o shape oficial. Os
-> resultados aceitos e rejeitados sao armazenados em cache no SQLite.
-
-Evitar afirmar que a aplicacao garante todas as regras de mao de direcao. A
-direcao das arestas vem da ordem das paradas nas viagens GTFS. O OSRM melhora a
-geometria visual, mas nao substitui a topologia oficial nem a busca BFS/DFS.
-
-## 3. Ordem de visita
-
-Remover a pendencia que afirma que a interface exibe apenas contagens. A versao
-atual mostra:
-
-- ordem de processamento dos vertices;
-- quantidade processada e descoberta;
-- caminho encontrado e distancia em arestas;
-- comparacao lado a lado entre BFS e DFS;
-- limite visual das primeiras 200 visitas, mantendo o total no resultado.
-
-## 4. Execucao e testes
-
-O comando correto e:
-
-```powershell
-python run.py
-```
-
-O `run.py` nao esta mais vazio. A verificacao atual da suite e:
-
-```text
-30 passed
-```
-
-Os testes cobrem BFS, DFS, ordem de visita, grafo direcionado, componentes
-fracas, API, importacao GTFS, SQLite, shapes e refinamento viario.
-
-## 5. Desempenho reproduzivel
-
-Os resultados devem ser regenerados com:
-
-```powershell
-python scripts/benchmark.py --output docs/BENCHMARK_RESULTADOS.md
-```
-
-Na execucao de 02/11/2026, em Windows 11, Python 3.14 e processador AMD64 Family
-25 Model 33, foram obtidas as seguintes medianas:
-
-| Instancia | V | E | BFS | DFS completa |
-| --- | ---: | ---: | ---: | ---: |
-| Grafo real | 20.812 | 27.218 | 6,54 ms | 12,58 ms |
-| Sintetico | 1.000 | 1.997 | 0,45 ms | 0,51 ms |
-| Sintetico | 5.000 | 9.997 | 2,63 ms | 2,93 ms |
-| Sintetico | 20.000 | 39.997 | 10,91 ms | 11,73 ms |
-| Sintetico | 50.000 | 99.997 | 26,72 ms | 30,20 ms |
-| Sintetico | 100.000 | 199.997 | 56,85 ms | 67,07 ms |
-| Sintetico | 200.000 | 399.997 | 134,78 ms | 164,84 ms |
-
-Esses tempos nao devem ser apresentados como universais. O relatorio precisa
-informar maquina, sistema, versao do Python, quantidade de repeticoes e semente.
-
-## 6. Escopo de Tarjan e selecao de instancias
-
-Tarjan nao faz parte dos algoritmos obrigatorios do Tema 1 fornecido ao grupo,
-que exige BFS e DFS. Se pontos de articulacao, pontes ou simulacao de fechamento
-constarem na proposta aprovada, o grupo deve escolher uma destas opcoes:
-
-1. implementar e demonstrar a extensao; ou
-2. registrar que o escopo foi ajustado, mantendo BFS e DFS como partes
-   essenciais e completas da solucao, e comunicar isso ao professor.
-
-O mesmo vale para o seletor de instancias: confirmar a exigencia no enunciado
-completo antes de acrescentar uma funcionalidade que nao aparece no trecho do
-Tema 1 disponibilizado.
-
-## 7. Campos que o grupo precisa fornecer
-
-- nome completo e RA dos cinco integrantes;
-- frente e contribuicoes concretas de cada integrante;
-- confirmacao de que todos conseguem explicar sua parte;
-- historico Git com contribuicoes dos integrantes;
-- decisao registrada sobre Tarjan e seletor de instancias;
-- capturas atuais da interface;
-- revisao final dos resultados na maquina da apresentacao.
-
-## 8. Declaracao de uso de IA
-
-O documento deve declarar de forma transparente o uso das ferramentas. Texto
-sugerido para o uso do Codex:
-
-> Codex (OpenAI) - apoio na revisao do repositorio, implementacao e teste da
-> exibicao da ordem de visita, persistencia de shapes, refinamento viario,
-> validacoes, documentacao e benchmark. As alteracoes foram revisadas pelo grupo
-> por leitura do codigo, execucao da suite automatizada e verificacao visual da
-> interface.
-
-Cada integrante deve conseguir explicar o codigo produzido ou revisado com
-auxilio de IA. A declaracao deve citar somente verificacoes que o grupo de fato
-realizou.
-
-## 9. Ajustes visuais no PDF
-
-- substituir as capturas antigas por imagens da interface atual;
-- mostrar a comparacao BFS x DFS e a ordem de visita;
-- incluir uma captura de itinerario usando shape/OSRM;
-- impedir a divisao da tabela de IA entre duas paginas;
-- evitar uma ultima pagina quase vazia;
-- separar melhor as referencias Leaflet e Flask;
-- remover todos os blocos amarelos `[PENDENTE]` da versao final.
+[Auditoria final](AUDITORIA.md#verificação-final-para-17112026) ·
+[Guia de estudo](GUIA_ESTUDO_TRANSITGRAPH.md) ·
+[Roteiro de demonstração](ROTEIRO_APRESENTACAO.md)

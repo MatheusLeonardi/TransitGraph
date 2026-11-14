@@ -1,12 +1,24 @@
 
-const map = L.map("map").setView([-23.5505, -46.6333], 11);
+const instance = document.body.dataset.instance;
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap contributors",
-    maxZoom: 19
-}).addTo(map);
+function apiFetch(path, options) {
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set("instance", instance);
+    return fetch(url, options);
+}
 
-const stopLayer = L.layerGroup().addTo(map);
+const map = window.L ? L.map("map").setView([-23.5505, -46.6333], 11) : null;
+let stopLayer = null;
+
+if (map) {
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+        maxZoom: 19
+    }).addTo(map);
+    stopLayer = L.layerGroup().addTo(map);
+} else {
+    document.getElementById("map").textContent = "Mapa indisponível. As buscas locais continuam disponíveis.";
+}
 
 let pathLayer = null;
 let searchMarker = null;
@@ -17,38 +29,71 @@ function appendVisitOrder(container, data) {
 
     const section = document.createElement("section");
     section.className = "visit-order";
-
-    const heading = document.createElement("strong");
-    heading.textContent = `Ordem de visita — ${data.algorithm}`;
-
     const summary = document.createElement("small");
+    const time = data.execution_time_ms === undefined
+        ? ""
+        : ` · ${data.execution_time_ms.toLocaleString("pt-BR")} ms`;
+    const edges = data.edges_examined === undefined
+        ? ""
+        : ` · ${data.edges_examined.toLocaleString("pt-BR")} arestas examinadas`;
     summary.textContent =
-        `${data.processed_count.toLocaleString("pt-BR")} processadas · ` +
-        `${data.discovered_count.toLocaleString("pt-BR")} descobertas`;
+        `${data.processed_count.toLocaleString("pt-BR")} visitadas · ` +
+        `${data.discovered_count.toLocaleString("pt-BR")} descobertas${edges}${time}`;
 
-    const list = document.createElement("ol");
+    section.append(summary);
+    appendOrder(
+        section,
+        data.algorithm === "DFS" ? "Ordem de descoberta" : "Ordem de visita",
+        data.visited_order,
+        data.visited_order_total,
+        true
+    );
+    if (data.finish_order) {
+        appendOrder(
+            section, "Ordem de finalização (retornos)",
+            data.finish_order, data.finish_order_total
+        );
+    }
+    container.appendChild(section);
+}
 
-    data.visited_order.forEach(stopId => {
-        const item = document.createElement("li");
-        item.textContent = stopId;
-        list.appendChild(item);
-    });
+function appendOrder(section, label, order, total, open = false) {
+    const details = document.createElement("details");
+    details.open = open;
+    const title = document.createElement("summary");
+    title.textContent = `${label} · ${total.toLocaleString("pt-BR")}`;
+    details.append(title);
 
-    section.append(heading, summary, list);
-
-    if (data.visited_order_truncated) {
-        const warning = document.createElement("small");
-        warning.textContent =
-            `Exibindo as primeiras ${data.visited_order.length} de ` +
-            `${data.visited_order_total.toLocaleString("pt-BR")} visitas.`;
-        section.appendChild(warning);
+    if (order.length === 0) {
+        const empty = document.createElement("small");
+        empty.textContent = "A busca terminou antes do primeiro retorno.";
+        details.append(empty);
+    } else {
+        const list = document.createElement("ol");
+        order.forEach(stopId => {
+            const item = document.createElement("li");
+            item.textContent = stopId;
+            list.appendChild(item);
+        });
+        details.append(list);
     }
 
-    container.appendChild(section);
+    if (order.length < total) {
+        const warning = document.createElement("small");
+        warning.textContent = `Exibindo os primeiros ${order.length} registros.`;
+        details.append(warning);
+    }
+    section.append(details);
 }
 
 
 function appendPath(container, data) {
+    if (data.found === false) {
+        const message = document.createElement("p");
+        message.textContent = "Nenhum caminho direcionado para o destino.";
+        container.append(message);
+        return;
+    }
     if (!data.path || data.path.length === 0) return;
 
     const path = document.createElement("div");
@@ -79,10 +124,16 @@ function appendItinerary(container, itinerary) {
 
         const description = document.createElement("div");
         const line = leg.route_short_name || "Linha não identificada";
-        const headsign = leg.headsign ? ` · sentido ${leg.headsign}` : "";
+        const hasTripBreak = leg.geometry_segments?.some(segment =>
+            segment.quality?.issues.some(issue => issue.code === "trip-discontinuity"));
+        const headsign = leg.headsign && !hasTripBreak ? ` · sentido ${leg.headsign}` : "";
         description.textContent =
             `${line}${headsign} — ${leg.stops.length} paradas`;
 
+        if (hasTripBreak) {
+            description.append(document.createElement("br"),
+                "Mudança de viagem nesta linha · confira o diagnóstico.");
+        }
         item.append(badge, description);
         section.appendChild(item);
     });
@@ -90,12 +141,18 @@ function appendItinerary(container, itinerary) {
     const source = document.createElement("small");
     if (itinerary.uses_road_matching) {
         source.textContent =
-            "Shape GTFS refinado sobre a malha viária do OpenStreetMap.";
+            "Trechos ajustados à malha viária do OpenStreetMap, quando disponíveis.";
     } else if (itinerary.uses_gtfs_shapes) {
-        source.textContent = "Traçado exibido com a geometria oficial do GTFS.";
+        source.textContent = "Traçado baseado na geometria do GTFS.";
     } else {
         source.textContent =
             "Geometria GTFS indisponível; exibindo ligação simplificada.";
+    }
+    if (itinerary.road_matching_status === "fallback-gtfs") {
+        source.textContent += " O ajuste viário ficou indisponível para esta rota.";
+    }
+    if (itinerary.has_approximate_geometry || itinerary.has_sparse_geometry) {
+        source.textContent += " Trechos tracejados indicam traçado incerto ou ligação aproximada.";
     }
     section.appendChild(source);
     container.appendChild(section);
@@ -109,8 +166,8 @@ function appendItinerary(container, itinerary) {
 async function loadStats() {
     try {
         const [statsResponse, connectivityResponse] = await Promise.all([
-            fetch("/api/stats"),
-            fetch("/api/connectivity")
+            apiFetch("/api/stats"),
+            apiFetch("/api/connectivity")
         ]);
 
         if (!statsResponse.ok || !connectivityResponse.ok) {
@@ -170,6 +227,7 @@ async function loadStats() {
 // --------------------------------------------------
 
 async function loadMapStops() {
+    if (!map) return;
 
     if (mapRequest) {
         mapRequest.abort();
@@ -188,7 +246,7 @@ async function loadMapStops() {
     });
 
     try {
-        const response = await fetch(
+        const response = await apiFetch(
             `/api/stops/map?${params}`,
             { signal: mapRequest.signal }
         );
@@ -257,7 +315,7 @@ async function searchStops() {
     results.textContent = "Pesquisando...";
 
     try {
-        const response = await fetch(
+        const response = await apiFetch(
             `/api/stops?q=${encodeURIComponent(query)}&limit=30`
         );
 
@@ -295,6 +353,7 @@ async function searchStops() {
             destinationButton.textContent = "Usar como destino";
 
             function focusStop() {
+                if (!map) return;
                 map.setView(
                     [stop.latitude, stop.longitude],
                     17
@@ -377,12 +436,13 @@ function setupStopAutocomplete(field) {
         if (controller) controller.abort();
         controller = new AbortController();
         try {
-            const response = await fetch(
+            const response = await apiFetch(
                 `/api/stops?q=${encodeURIComponent(query)}&limit=8`,
                 { signal: controller.signal }
             );
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || "Falha ao buscar paradas.");
+            if (input.value.trim() !== query || document.activeElement !== input) return;
 
             suggestions.replaceChildren();
             data.stops.forEach(stop => {
@@ -419,6 +479,7 @@ function setupStopAutocomplete(field) {
         input.dataset.stopId = "";
         document.getElementById(`${field}-name`).textContent = "";
         if (timer) clearTimeout(timer);
+        controller?.abort();
         const query = input.value.trim();
         if (query.length < 2) {
             hideStopSuggestions(field);
@@ -469,7 +530,7 @@ async function executeBFS() {
     resultBox.textContent = "Executando BFS...";
 
     try {
-        const response = await fetch("/api/algorithms/bfs", {
+        const response = await apiFetch("/api/algorithms/bfs", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -486,6 +547,7 @@ async function executeBFS() {
         if (!data.found) {
             resultBox.textContent =
                 "Não foi encontrado um caminho entre essas paradas.";
+            appendVisitOrder(resultBox, data);
             clearPath();
             return;
         }
@@ -515,7 +577,94 @@ async function executeBFS() {
 // DESENHAR CAMINHO DO BFS
 // --------------------------------------------------
 
+const geometryDebug = document.getElementById("geometry-debug");
+const geometrySelect = document.getElementById("geometry-segment");
+const geometryFields = document.getElementById("geometry-debug-data");
+let geometryLayers = null;
+let geometryEntries = [];
+
+function geometryIsUncertain(segment) {
+    return segment.source === "approximate" ||
+        (segment.source === "gtfs" && segment.quality?.issues.some(issue =>
+            issue.code === "sparse-geometry" || issue.code === "long-detour"));
+}
+
+function geometryLabel(segment) {
+    if (segment.source === "approximate") return "sem trajeto de rua confirmado";
+    if (segment.source === "osrm") return "ajuste OSRM aceito pelas verificações";
+    if (geometryIsUncertain(segment)) return "GTFS com traçado incerto";
+    return "traçado GTFS";
+}
+
+function renderGeometryDebug() {
+    geometryLayers?.clearLayers();
+    document.getElementById("geometry-debug-instruction").hidden = geometryEntries.length > 0;
+    const entry = geometryEntries[geometrySelect.value];
+    if (!geometryDebug.open || !entry || !geometryLayers) {
+        geometryFields.textContent = "";
+        return;
+    }
+    const {segment, line, stops} = entry;
+    const ref = segment.reference ?? {};
+    const gtfs = segment.quality ?? {};
+    const osrm = segment.osrm ?? {};
+    const describeStop = id => {
+        const stop = stops.get(id);
+        return stop?.name ? stop.name + " (" + id + ")" : id;
+    };
+    geometryFields.textContent = [
+        describeStop(segment.from_stop) + " → " + describeStop(segment.to_stop),
+        "Linha " + line + " · viagem " + (ref.trip_id ?? "—") + " · shape " + (ref.shape_id ?? "—"),
+        "Sentido GTFS " + (ref.direction_id ?? "—") + " · ocorrências " +
+            (ref.from_stop_sequence ?? "—") + " → " + (ref.to_stop_sequence ?? "—"),
+        "Fonte final: " + geometryLabel(segment) + " · associação " + (ref.location_method ?? "—"),
+        "Intervalo no shape: " + (ref.from_sequence?.toFixed(2) ?? "—") + " → " +
+            (ref.to_sequence?.toFixed(2) ?? "—"),
+        "GTFS " + (gtfs.distance_m ?? "—") + " m · OSRM " + (osrm.distance_m?.toFixed(1) ?? "—") +
+            " m · maior intervalo " + (gtfs.max_gap_m ?? "—") + " m",
+        "Erro nas paradas (m): " + (ref.endpoint_error_m?.join(" / ") || "—"),
+        "Confiança OSRM: " + (osrm.confidence?.toFixed(3) ?? "—") + " · desvio dos pontos: " +
+            (osrm.max_anchor_offset_m ?? "—") + " m",
+        "Indicadores: " + (gtfs.issues?.map(issue => Object.entries(issue)
+            .map(([key, value]) => key === "code" ? value : key + "=" + value)
+            .join(" ")).join(" · ") || "nenhum sinalizado")
+    ].join("\n");
+
+    const uncertainDash = geometryIsUncertain(segment) ? "7 7" : null;
+    for (const [id, points, color, width, dash] of [
+        ["gtfs", segment.gtfs_geometry, "#7c3aed", 10, uncertainDash],
+        ["osrm", osrm.geometry, "#00a36c", 7, "9 6"],
+        ["final", segment.geometry, "#18243b", 3, uncertainDash || "3 4"]
+    ]) {
+        if (points?.length >= 2 && document.getElementById("geometry-show-" + id).checked) {
+            L.polyline(points, {color, weight: width, dashArray: dash,
+                smoothFactor: 0, interactive: false}).addTo(geometryLayers);
+        }
+    }
+}
+
+function focusGeometrySegment() {
+    renderGeometryDebug();
+    const points = geometryEntries[geometrySelect.value]?.segment.geometry;
+    if (points?.length >= 2 && map) {
+        map.fitBounds(L.latLngBounds(points), {padding: [40, 40], maxZoom: 18});
+    }
+}
+
+geometryDebug.addEventListener("toggle", renderGeometryDebug);
+geometrySelect.addEventListener("change", focusGeometrySegment);
+geometryDebug.querySelectorAll("input[type=checkbox]").forEach(input => {
+    input.addEventListener("change", renderGeometryDebug);
+});
+
 function clearPath() {
+    geometryEntries = [];
+    document.getElementById("geometry-debug-instruction").hidden = false;
+    geometrySelect.replaceChildren();
+    geometrySelect.disabled = true;
+    geometryFields.textContent = "";
+    geometryLayers?.remove();
+    geometryLayers = null;
     if (pathLayer) {
         map.removeLayer(pathLayer);
         pathLayer = null;
@@ -557,33 +706,71 @@ function drawItinerary(itinerary, stops) {
 
     clearPath();
 
-    if (!stops || stops.length === 0) return;
+    if (!map || !stops || stops.length === 0) return;
 
     const colors = ["#e94b64", "#2878ed", "#f59e0b", "#16a085", "#8b5cf6"];
     pathLayer = L.featureGroup().addTo(map);
     let directionArrow = null;
+    const stopById = new Map(stops.map(stop => [stop.stop_id, stop]));
 
     if (itinerary && itinerary.legs.length > 0) {
         itinerary.legs.forEach((leg, index) => {
-            if (!leg.geometry || leg.geometry.length < 2) return;
+            const color = colors[index % colors.length];
+            const segments = leg.geometry_segments ?? [{geometry: leg.geometry, source: "gtfs"}];
+            for (const segment of segments) {
+                const geometry = segment.geometry;
+                const index = geometryEntries.length;
+                const lineName = leg.route_short_name || "Linha não identificada";
+                geometryEntries.push({segment, line: lineName, stops: stopById});
+                geometrySelect.add(new Option(segment.from_stop + " → " + segment.to_stop +
+                    " · " + lineName + (geometryIsUncertain(segment) ? " · incerto" : ""), index));
+                if (!geometry || geometry.length < 2) continue;
 
-            const line = L.polyline(leg.geometry, {
-                color: colors[index % colors.length],
-                weight: 5,
-                opacity: 0.9
-            });
+                if (geometry[0][0] === geometry[geometry.length - 1][0] &&
+                    geometry[0][1] === geometry[geometry.length - 1][1] &&
+                    segment.source === "approximate") continue;
+                const approximate = geometryIsUncertain(segment);
+                const line = L.polyline(geometry, {
+                    color,
+                    weight: 5,
+                    opacity: approximate ? 0.65 : 0.9,
+                    dashArray: approximate ? "7 7" : null,
+                    smoothFactor: 0
+                });
 
-            const label = leg.route_short_name || "Linha não identificada";
-            line.bindPopup(`Linha ${label}`);
-            pathLayer.addLayer(line);
-            if (!directionArrow || leg.geometry.length > directionArrow.geometry.length) {
-                directionArrow = {
-                    geometry: leg.geometry,
-                    color: colors[index % colors.length]
-                };
+                const label = leg.route_short_name || "Linha não identificada";
+                const popup = document.createElement("span");
+                popup.textContent = "Linha " + label + " · " + geometryLabel(segment);
+                const inspect = document.createElement("button");
+                inspect.type = "button";
+                inspect.textContent = "Diagnosticar trecho";
+                inspect.addEventListener("click", () => {
+                    geometryDebug.open = true;
+                    geometrySelect.value = index;
+                    renderGeometryDebug();
+                    geometryDebug.scrollIntoView({block: "nearest"});
+                });
+                popup.append(document.createElement("br"), inspect);
+                line.bindPopup(popup);
+                pathLayer.addLayer(line);
+                if (!approximate && (!directionArrow || geometry.length > directionArrow.geometry.length)) {
+                    directionArrow = { geometry, color };
+                }
             }
         });
     }
+
+    geometrySelect.disabled = !geometryEntries.length;
+    geometryLayers = L.layerGroup().addTo(map);
+    for (const {segment} of geometryEntries) {
+        if (!segment.quality?.issues.some(issue => issue.code === "trip-discontinuity")) continue;
+        const stop = stopById.get(segment.from_stop);
+        if (stop?.latitude == null || stop.longitude == null) continue;
+        L.circleMarker([stop.latitude, stop.longitude], {
+            radius: 5, color: "#ffffff", fillColor: "#7c3aed", fillOpacity: 1
+        }).bindTooltip("Mudança de viagem nesta parada").addTo(pathLayer);
+    }
+    renderGeometryDebug();
 
     if (directionArrow) {
         addDirectionArrows(
@@ -591,19 +778,6 @@ function drawItinerary(itinerary, stops) {
             directionArrow.color,
             pathLayer
         );
-    }
-
-    if (pathLayer.getLayers().length === 0) {
-        const coordinates = stops.map(stop => [
-            stop.latitude,
-            stop.longitude
-        ]);
-
-        pathLayer.addLayer(L.polyline(coordinates, {
-            color: colors[0],
-            weight: 5,
-            opacity: 0.9
-        }));
     }
 
     const origin = stops[0];
@@ -619,15 +793,15 @@ function drawItinerary(itinerary, stops) {
             iconSize: [24, 24],
             iconAnchor: [12, 12]
         });
+        if (stop.latitude == null || stop.longitude == null) return;
         pathLayer.addLayer(L.marker(
             [stop.latitude, stop.longitude],
             { icon }
         ));
     });
 
-    map.fitBounds(pathLayer.getBounds(), {
-        padding: [45, 45]
-    });
+    const bounds = pathLayer.getBounds();
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [45, 45] });
 }
 
 
@@ -655,7 +829,7 @@ async function executeDFS() {
     resultBox.textContent = "Executando DFS...";
 
     try {
-        const response = await fetch("/api/algorithms/dfs", {
+        const response = await apiFetch("/api/algorithms/dfs", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -680,10 +854,17 @@ async function executeDFS() {
         title.textContent = "DFS concluída!";
 
         const description = document.createElement("div");
-        description.textContent =
-            data.destination
-                ? "A DFS aprofundou cada ramo até localizar o destino."
-                : "A DFS percorreu todas as conexões direcionadas alcançáveis.";
+        if (data.destination) {
+            description.textContent = data.found
+                ? "A DFS encontrou um caminho seguindo a ordem dos ramos."
+                : "A busca esgotou as conexões alcançáveis a partir da origem.";
+        } else {
+            const reachable = data.discovered_count;
+            const total = data.network_size;
+            description.textContent =
+                `${reachable.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} paradas alcançáveis (inclui a origem). ` +
+                `${(total - reachable).toLocaleString("pt-BR")} ficam fora da cobertura direcionada desta origem.`;
+        }
 
         resultBox.append(title, description);
         appendPath(resultBox, data);
@@ -716,7 +897,7 @@ async function executeWeightedSearch() {
     resultBox.textContent = "Calculando a rota de menor tempo...";
     clearPath();
     try {
-        const response = await fetch("/api/algorithms/dijkstra", {
+        const response = await apiFetch("/api/algorithms/dijkstra", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ origin, destination })
@@ -772,7 +953,7 @@ async function compareAlgorithms() {
     resultBox.textContent = "Comparando BFS e DFS...";
 
     try {
-        const response = await fetch("/api/algorithms/compare", {
+        const response = await apiFetch("/api/algorithms/compare", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ origin, destination })
@@ -800,16 +981,19 @@ async function compareAlgorithms() {
             explanation.textContent =
                 data.explanation[result.algorithm.toLowerCase()];
 
-            const metrics = document.createElement("div");
-            metrics.className = "algorithm-metrics";
-            metrics.textContent =
-                `${result.processed_count.toLocaleString("pt-BR")} processadas · ` +
-                `${result.execution_time_ms.toLocaleString("pt-BR")} ms`;
-
-            card.append(title, explanation, metrics);
+            card.append(title, explanation);
             appendPath(card, result);
             appendItinerary(card, result.itinerary);
             appendVisitOrder(card, result);
+            if (result.found && map) {
+                const showRoute = document.createElement("button");
+                showRoute.type = "button";
+                showRoute.textContent = `Ver caminho ${result.algorithm} no mapa`;
+                showRoute.addEventListener("click", () => {
+                    drawItinerary(result.itinerary, result.path_stops);
+                });
+                card.append(showRoute);
+            }
             comparison.appendChild(card);
         });
 
@@ -934,7 +1118,7 @@ document.getElementById("clear-stops-button")
         clearPath();
     });
 
-map.on("moveend", loadMapStops);
+map?.on("moveend", loadMapStops);
 
 
 // --------------------------------------------------
@@ -954,6 +1138,11 @@ let cy = null;
 
 function initializeGraph() {
 
+    if (!window.cytoscape) {
+        document.getElementById("graph-info").textContent = "Visualização do grafo indisponível.";
+        document.getElementById("load-graph-button").disabled = true;
+        return;
+    }
     cy = cytoscape({
         container: document.getElementById("cy"),
 
@@ -964,7 +1153,7 @@ function initializeGraph() {
                 selector: "node",
                 style: {
                     "background-color": "#2878ed",
-                    "label": "data(label)",
+                    "label": instance === "local" ? "data(id)" : "data(label)",
                     "color": "#26344b",
                     "font-size": "9px",
                     "text-wrap": "wrap",
@@ -1023,12 +1212,12 @@ function initializeGraph() {
         const node = event.target;
         const stopId = node.id();
 
-        document.getElementById("origin").value = stopId;
+        selectStop("origin", {stop_id: stopId, name: node.data("label")});
         document.getElementById("graph-stop-input").value = stopId;
 
         const data = node.data();
 
-        if (data.latitude !== null && data.longitude !== null) {
+        if (map && data.latitude !== null && data.longitude !== null) {
             map.setView([data.latitude, data.longitude], 16);
         }
     });
@@ -1036,6 +1225,7 @@ function initializeGraph() {
 
 
 async function loadInteractiveGraph() {
+    if (!cy) return;
 
     const stopId = document
         .getElementById("graph-stop-input")
@@ -1062,7 +1252,7 @@ async function loadInteractiveGraph() {
             limit: 300
         });
 
-        const response = await fetch(
+        const response = await apiFetch(
             `/api/graph/neighborhood?${params}`
         );
 
@@ -1091,7 +1281,13 @@ async function loadInteractiveGraph() {
         cy.elements().remove();
         cy.add(elements);
 
-        cy.layout({
+        const layout = instance === "local" ? {
+            name: "breadthfirst",
+            directed: true,
+            roots: cy.getElementById(stopId),
+            spacingFactor: 1.5,
+            padding: 35
+        } : {
             name: "cose",
             animate: true,
             animationDuration: 500,
@@ -1100,7 +1296,8 @@ async function loadInteractiveGraph() {
             gravity: 0.25,
             fit: true,
             padding: 35
-        }).run();
+        };
+        cy.layout(layout).run();
 
         info.textContent =
             `${data.node_count} paradas e ${data.edge_count} conexões ` +

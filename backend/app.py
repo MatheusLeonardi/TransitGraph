@@ -1,15 +1,15 @@
 
 import os
-import sqlite3
 from pathlib import Path
 from time import perf_counter
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, g, jsonify, request, render_template
 from collections import deque
 from backend.algorithms.bfs import bfs
 from backend.algorithms.dfs import dfs
 from backend.algorithms.dijkstra import dijkstra
 from backend.algorithms.connectivity import weakly_connected_components
 from backend.models.database import load_graph
+from backend.services.instance_service import INSTANCE_LABELS, build_instances
 from backend.services.itinerary_service import build_itinerary
 from backend.services.road_matching_service import refine_itinerary_geometry
 
@@ -30,6 +30,11 @@ def prepare_algorithm_result(result, graph, database_path=None):
     response["visited_order_truncated"] = (
         len(visit_order) > VISIT_ORDER_LIMIT
     )
+
+    if "finish_order" in response:
+        finish_order = response["finish_order"]
+        response["finish_order"] = finish_order[:VISIT_ORDER_LIMIT]
+        response["finish_order_total"] = len(finish_order)
 
     # reachable_stops repete integralmente visited_order na DFS.
     response.pop("reachable_stops", None)
@@ -52,29 +57,37 @@ def prepare_algorithm_result(result, graph, database_path=None):
     return response
 
 
-def get_database_connection(database_path=DATABASE_PATH):
-    """Abre uma conexão com o banco SQLite."""
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    return connection
+def read_algorithm_input():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise ValueError("Informe um objeto JSON com as paradas.")
+    stops = []
+    for field in ("origin", "destination"):
+        value = data.get(field)
+        if value is not None and type(value) not in (str, int):
+            raise ValueError("Informe códigos de parada válidos.")
+        stops.append(str(value).strip() if value is not None else "")
+    return stops
 
 
 def create_app(graph=None, database_path=None):
 
-    database_path = Path(database_path or DATABASE_PATH)
+    database_path = Path(
+        database_path or os.getenv("TRANSITGRAPH_DATABASE") or DATABASE_PATH
+    )
 
     app = Flask(
-    __name__,
-    template_folder=str(PROJECT_DIR / "frontend" / "templates"),
-    static_folder=str(PROJECT_DIR / "frontend" / "static")
-)
+        __name__,
+        template_folder=str(PROJECT_DIR / "frontend" / "templates"),
+        static_folder=str(PROJECT_DIR / "frontend" / "static")
+    )
 
     # Carrega o grafo somente uma vez
     if graph is None:
         if not database_path.exists():
             raise FileNotFoundError(
                 f"Banco de dados não encontrado: {database_path}. "
-                "Execute primeiro scripts/save_graph.py."
+                "Execute primeiro scripts/build_graph.py."
             )
 
         graph = load_graph(database_path)
@@ -82,9 +95,23 @@ def create_app(graph=None, database_path=None):
     app.config["GRAPH"] = graph
     app.config["DATABASE_PATH"] = database_path
 
+    instances = build_instances(graph)
+
+    @app.before_request
+    def select_instance():
+        instance = request.args.get("instance", "full")
+        if instance not in instances:
+            return jsonify({"error": "Instância da rede indisponível."}), 400
+        g.instance = instance
+        g.graph = instances[instance]
+
     @app.get("/")
     def index():
-     return render_template("index.html")
+        return render_template(
+            "index.html",
+            instances={key: INSTANCE_LABELS[key] for key in instances},
+            active_instance=g.instance
+        )
 
     # --------------------------------------------------
     # ROTA: VERIFICAR SE A API ESTÁ FUNCIONANDO
@@ -92,6 +119,7 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/health")
     def health():
+        graph = g.graph
 
         return jsonify({
             "status": "online",
@@ -106,8 +134,10 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/stats")
     def statistics():
+        graph = g.graph
 
         return jsonify({
+            "instance": g.instance,
             "vertices": graph.vertex_count(),
             "edges": graph.edge_count(),
             "service_date": graph.metadata.get("service_date"),
@@ -124,6 +154,7 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/stops")
     def search_stops():
+        graph = g.graph
 
         query = request.args.get("q", "").strip()
 
@@ -134,33 +165,18 @@ def create_app(graph=None, database_path=None):
 
         limit = max(1, min(limit, 100))
 
-        with get_database_connection(database_path) as connection:
+        if not query:
+            return jsonify({"error": "Informe um termo de pesquisa usando q."}), 400
 
-            if query:
-
-                search = f"%{query}%"
-
-                rows = connection.execute(
-                    """
-                    SELECT stop_id, name, latitude, longitude
-                    FROM stops
-                    WHERE stop_id LIKE ? OR name LIKE ?
-                    ORDER BY name
-                    LIMIT ?
-                    """,
-                    (search, search, limit)
-                ).fetchall()
-
-            else:
-
-                return jsonify({
-                    "error": "Informe um termo de pesquisa usando q."
-                }), 400
-
-        return jsonify({
-            "count": len(rows),
-            "stops": [dict(row) for row in rows]
-        })
+        query = query.casefold()
+        matches = [
+            stop for stop in graph.stops.values()
+            if query in stop["stop_id"].casefold()
+            or query in (stop["name"] or "").casefold()
+        ]
+        matches.sort(key=lambda stop: (stop["name"] or "", stop["stop_id"]))
+        stops = matches[:limit]
+        return jsonify({"count": len(stops), "stops": stops})
 
     # --------------------------------------------------
     # ROTA: PARADAS VISÍVEIS NO MAPA
@@ -168,6 +184,7 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/stops/map")
     def map_stops():
+        graph = g.graph
 
         required = ["south", "north", "west", "east"]
 
@@ -190,24 +207,16 @@ def create_app(graph=None, database_path=None):
 
         limit = max(1, min(limit, 10000))
 
-        with get_database_connection(database_path) as connection:
-
-            rows = connection.execute(
-                """
-                SELECT stop_id, name, latitude, longitude
-                FROM stops
-                WHERE latitude BETWEEN ? AND ?
-                  AND longitude BETWEEN ? AND ?
-                LIMIT ?
-                """,
-                (south, north, west, east, limit)
-            ).fetchall()
-
-        return jsonify({
-            "count": len(rows),
-            "limit": limit,
-            "stops": [dict(row) for row in rows]
-        })
+        rows = []
+        for stop in graph.stops.values():
+            latitude, longitude = stop["latitude"], stop["longitude"]
+            if latitude is None or longitude is None:
+                continue
+            if south <= latitude <= north and west <= longitude <= east:
+                rows.append(stop)
+                if len(rows) == limit:
+                    break
+        return jsonify({"count": len(rows), "limit": limit, "stops": rows})
 
     # --------------------------------------------------
     # ROTA: DETALHES DE UMA PARADA
@@ -215,6 +224,7 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/stops/<stop_id>")
     def stop_details(stop_id):
+        graph = g.graph
 
         stop = graph.get_stop(stop_id)
 
@@ -229,11 +239,11 @@ def create_app(graph=None, database_path=None):
 
     @app.post("/api/algorithms/bfs")
     def run_bfs():
-
-        data = request.get_json(silent=True) or {}
-
-        origin = data.get("origin")
-        destination = data.get("destination")
+        graph = g.graph
+        try:
+            origin, destination = read_algorithm_input()
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
         if not origin or not destination:
             return jsonify({
@@ -241,8 +251,10 @@ def create_app(graph=None, database_path=None):
             }), 400
 
         try:
-            result = bfs(graph, str(origin), str(destination))
+            start = perf_counter()
+            result = bfs(graph, origin, destination)
 
+            result["execution_time_ms"] = round((perf_counter() - start) * 1000, 4)
             return jsonify(prepare_algorithm_result(
                 result,
                 graph,
@@ -258,11 +270,11 @@ def create_app(graph=None, database_path=None):
 
     @app.post("/api/algorithms/dfs")
     def run_dfs():
-
-        data = request.get_json(silent=True) or {}
-
-        origin = data.get("origin")
-        destination = data.get("destination")
+        graph = g.graph
+        try:
+            origin, destination = read_algorithm_input()
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
         if not origin:
             return jsonify({
@@ -270,11 +282,10 @@ def create_app(graph=None, database_path=None):
             }), 400
 
         try:
-            result = dfs(
-                graph,
-                str(origin),
-                str(destination) if destination else None
-            )
+            start = perf_counter()
+            result = dfs(graph, origin, destination or None)
+            result["execution_time_ms"] = round((perf_counter() - start) * 1000, 4)
+            result["network_size"] = graph.vertex_count()
 
             return jsonify(prepare_algorithm_result(
                 result,
@@ -287,17 +298,19 @@ def create_app(graph=None, database_path=None):
 
     @app.post("/api/algorithms/dijkstra")
     def run_dijkstra():
+        graph = g.graph
+        try:
+            origin, destination = read_algorithm_input()
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
-        data = request.get_json(silent=True) or {}
-        origin = data.get("origin")
-        destination = data.get("destination")
         if not origin or not destination:
             return jsonify({
                 "error": "Informe as paradas de origem e destino."
             }), 400
 
         try:
-            result = dijkstra(graph, str(origin), str(destination))
+            result = dijkstra(graph, origin, destination)
             return jsonify(prepare_algorithm_result(
                 result,
                 graph,
@@ -312,10 +325,11 @@ def create_app(graph=None, database_path=None):
 
     @app.post("/api/algorithms/compare")
     def compare_algorithms():
-
-        data = request.get_json(silent=True) or {}
-        origin = data.get("origin")
-        destination = data.get("destination")
+        graph = g.graph
+        try:
+            origin, destination = read_algorithm_input()
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
 
         if not origin or not destination:
             return jsonify({
@@ -323,9 +337,6 @@ def create_app(graph=None, database_path=None):
             }), 400
 
         try:
-            origin = str(origin)
-            destination = str(destination)
-
             start = perf_counter()
             bfs_result = bfs(graph, origin, destination)
             bfs_time_ms = (perf_counter() - start) * 1000
@@ -373,6 +384,7 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/connectivity")
     def connectivity():
+        graph = g.graph
 
         result = weakly_connected_components(graph)
 
@@ -395,6 +407,7 @@ def create_app(graph=None, database_path=None):
 
     @app.get("/api/graph/neighborhood")
     def graph_neighborhood():
+        graph = g.graph
 
         origin = request.args.get("stop_id", "").strip()
 
@@ -420,7 +433,7 @@ def create_app(graph=None, database_path=None):
         limit = max(10, min(limit, 300))
 
         queue = deque([(origin, 0)])
-        visited = {origin}
+        visited = {origin: None}
         edges = {}
 
         while queue:
@@ -437,7 +450,7 @@ def create_app(graph=None, database_path=None):
                     if len(visited) >= limit:
                         continue
 
-                    visited.add(neighbor)
+                    visited[neighbor] = None
                     queue.append((neighbor, current_depth + 1))
 
                 if neighbor in visited:
