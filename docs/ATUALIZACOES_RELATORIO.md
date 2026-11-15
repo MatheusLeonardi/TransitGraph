@@ -2,8 +2,8 @@
 
 Revisão de 14/11/2026. O mapa abaixo registra as correções feitas a partir
 do PDF anterior. A paginação da coluna se refere ao original preservado.
-A versão atual está disponível em [DOCX](../output/documents/TransitGraph_Relatorio_Tecnico_Final.docx)
-e [PDF de revisão](../output/documents/TransitGraph_Relatorio_Tecnico_Final.pdf).
+A versão atual está disponível em [DOCX](../output/documents/TransitGraph_Relatorio_Tecnico_Final_Dijkstra.docx)
+e [PDF de revisão](../output/documents/TransitGraph_Relatorio_Tecnico_Final_Dijkstra.pdf).
 Os campos destacados ainda precisam de confirmação humana.
 
 | Página e seção | Ajuste com evidência |
