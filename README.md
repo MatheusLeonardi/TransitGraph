@@ -179,28 +179,105 @@ $env:TRANSITGRAPH_DEBUG = "1"
 python run.py
 ```
 
-## Testes
+## Testes realizados
+
+### Como rodar
 
 ```powershell
-python -m pytest -v
-```
-
-Os testes cobrem ciclos, direção, origem igual ao destino, isolamento,
-alternativas de comprimentos diferentes, ordem de adjacência, retornos e DFS
-com 5.000 vértices em cadeia. Também cobrem API, recortes, persistência, importação
-e refinamento viário.
-
-## Benchmark reproduzível
-
-Para medir BFS e DFS nas três instâncias do GTFS, com e sem destino:
-
-```powershell
+python -m pip install -r requirements.txt
+python -m pytest -q
 python scripts/benchmark.py --output docs/BENCHMARK_RESULTADOS.md
 ```
 
-O script registra medianas, contagens e pico de alocações Python por busca.
-O carregamento, a montagem dos recortes e a renderização ficam fora da medição.
-Consulte os [resultados do benchmark](docs/BENCHMARK_RESULTADOS.md).
+Os testes do item 4.5 do enunciado ficam em `tests/test_requisitos.py`, com
+uma classe por categoria. Para rodar só uma categoria, use `-k`, por exemplo
+`python -m pytest tests/test_requisitos.py -v -k Fronteira`.
+
+### Resultado da execução
+
+**152 testes aprovados** em 24,08 s: 67 já existentes e 85 novos em
+`tests/test_requisitos.py`. Ambiente: Python 3.13.15, pytest 9.2.0,
+networkx 3.7, Windows 11.
+
+| Categoria do enunciado | O que foi testado | Arquivo de teste | Resultado |
+|---|---|---|---|
+| Casos simples com resultado verificável | Mini rede de 6 paradas com ciclo e atalho. A ordem de visita da BFS e da DFS, a ordem de finalização, o caminho e as arestas examinadas estão escritos à mão no teste. Inclui a volta `B → A`, que precisa contornar o ciclo pelo sentido das arestas | `test_requisitos.py::TestCasosSimples`; também `test_bfs.py`, `test_dfs.py`, `test_algorithms.py` | 4 aprovados |
+| Casos sem solução | Destino com aresta só no sentido contrário (`D → A` existe, `A → D` não). Destino isolado, em que a busca esgota todo o alcance antes de falhar. Origem ou destino inexistente nas combinações que faltavam | `TestSemSolucao`; também `test_traversals.py` | 8 aprovados |
+| Situações de fronteira | Grafo vazio. Origem igual ao destino dentro de um ciclo, sem examinar arestas. Parada sem arestas de saída. Ciclo `A → B → C → A` a partir de cada vértice. Auto-laço, aceito pelo modelo e ausente na rede real. Cadeia de 50.000 vértices, acima do limite de recursão de 1.000 do Python, para provar que a DFS iterativa não estoura | `TestFronteira`; também `test_traversals.py` | 12 aprovados |
+| Instâncias de diferentes tamanhos | Grafos dirigidos aleatórios com seed fixa, de 8, 60, 500, 2.000, 5.000 e 20.000 vértices, com 0,5 a 3 arestas por vértice. Instâncias reais pequena, intermediária e completa do SQLite | `TestPropriedades`, `TestValidacaoNetworkx`, `TestRedeReal` | os mesmos 51 testes da linha seguinte |
+| Validação da correção dos resultados | Propriedades: sem destino, BFS e DFS alcançam o mesmo conjunto; todo caminho usa só arestas existentes, no sentido certo; o caminho da BFS nunca é maior que o da DFS. Oráculo networkx: distância da BFS igual a `shortest_path_length`; alcance da DFS igual a `descendants` mais a origem; ordens de visita e finalização iguais, posição a posição, às de `bfs_edges`, `dfs_preorder_nodes` e `dfs_postorder_nodes` | `TestPropriedades` (24), `TestValidacaoNetworkx` (18), `TestRedeReal` (9) | 51 aprovados |
+| Análise do tempo de execução | Nos grafos do benchmark, de 1.000 a 100.000 vértices, cada busca processa exatamente V vértices e examina exatamente E arestas. Os tempos ficam no benchmark abaixo | `TestDesempenho`; `scripts/benchmark.py` | 10 aprovados |
+
+Os testes da rede real usam `data/processed/transitgraph.db`. Sem o banco, eles
+aparecem como ignorados (`skipped`) e os demais continuam rodando.
+
+> **Sobre a networkx.** A biblioteca é usada somente nos testes, como validação
+> independente: os testes comparam as respostas da BFS e da DFS do projeto com
+> as que a networkx calcula sobre uma cópia do mesmo grafo. Ela não substitui
+> as implementações próprias em `backend/algorithms/bfs.py` e
+> `backend/algorithms/dfs.py`, que são as usadas pela aplicação.
+
+### Desempenho
+
+Travessia completa (sem destino), mediana de 21 repetições. Os grafos
+aleatórios formam um ciclo dirigido com atalhos sorteados, com E = 1,3·V como
+na rede real, e são alcançáveis por inteiro a partir da origem. Nas instâncias
+reais, a busca parte da origem de referência de cada recorte.
+
+| Instância | Vértices | Arestas | Mediana BFS | Mediana DFS |
+|---|---:|---:|---:|---:|
+| Aleatória | 1.000 | 1.300 | 0,2416 ms | 0,3712 ms |
+| Aleatória | 5.000 | 6.500 | 1,3547 ms | 2,1011 ms |
+| Aleatória | 20.000 | 26.000 | 10,2559 ms | 10,6555 ms |
+| Aleatória | 50.000 | 65.000 | 61,1490 ms | 92,4432 ms |
+| Aleatória | 100.000 | 130.000 | 97,2056 ms | 363,5862 ms |
+| Real · pequena | 7 | 6 | 0,0051 ms | 0,0069 ms |
+| Real · intermediária | 177 | 181 | 0,0664 ms | 0,1542 ms |
+| Real · completa | 20.812 | 27.218 | 19,1989 ms | 25,5274 ms |
+
+O número de operações cresce exatamente como V + E, e o tempo acompanha esse
+crescimento enquanto o grafo cabe no cache do processador. De 1.000 para 5.000
+vértices, o trabalho cresceu 5,0 vezes e as medianas 5,6 (BFS) e 5,7 vezes
+(DFS), expoente 1,07 e 1,08. Acima de 20.000 vértices, cada operação fica mais
+cara e o expoente ajustado de 1.000 a 100.000 vai a 1,37 (BFS) e 1,48 (DFS). A
+causa é memória, não operações a mais. Estimadas com `sys.getsizeof`, as
+estruturas que a busca percorre ocupam cerca de 5 MiB com 20.000 vértices e
+15 MiB com 50.000, acima dos 12 MB de cache L3 do processador usado (Intel
+Core i5-1334U). As medições foram feitas num notebook na bateria. Os tempos
+dos grafos maiores variam entre execuções: a BFS com 100.000 vértices levou
+97,2 ms nesta e 168,6 ms numa execução anterior. O padrão de crescimento se
+repetiu. Consulte os [resultados completos](docs/BENCHMARK_RESULTADOS.md),
+com consultas com destino, custo por operação e pico de memória.
+
+### Extensão: menor tempo com Dijkstra
+
+O Dijkstra não fazia parte do objetivo do Tema 1, que trata de BFS e DFS. Ele
+foi incluído por sugestão do professor, para comparar a rota com **menos
+paradas** (BFS) com a de **menor tempo estimado** (Dijkstra) na mesma rede.
+
+Execução real na rede completa (20.812 vértices, 27.218 arestas, data de
+serviço 01/11/2026), da origem `600012584` ao destino `3609172`:
+
+| Algoritmo | Arestas | Tempo estimado |
+|---|---:|---:|
+| BFS (menos paradas) | 34 | 4.046,0 s (67,4 min) |
+| Dijkstra (menor tempo) | 39 | 3.380,5 s (56,3 min) |
+
+O caminho do Dijkstra tem 5 arestas a mais e leva 665,5 s (cerca de 11 min) a
+menos. O tempo da BFS é a soma dos pesos das arestas do caminho que ela
+encontrou, pela mesma regra do Dijkstra.
+
+O peso de cada aresta é a mediana do tempo programado no GTFS entre a partida
+de uma parada e a chegada à seguinte, considerando as viagens ativas na data
+de serviço. Nesse par, todas as arestas dos dois caminhos têm peso do GTFS, e
+a estimativa geográfica de 18 km/h não foi usada. O tempo não inclui espera no
+ponto, caminhada nem baldeação.
+
+Para reproduzir:
+
+```powershell
+python scripts/compare_bfs_dijkstra.py 600012584 3609172
+```
 
 ## Estrutura principal
 
@@ -216,7 +293,8 @@ frontend/
 scripts/
   build_graph.py     # GTFS -> grafo -> SQLite
   benchmark.py       # medições reproduzíveis de BFS e DFS
-tests/               # testes automatizados
+  compare_bfs_dijkstra.py  # menos paradas (BFS) × menor tempo (Dijkstra)
+tests/               # testes automatizados; test_requisitos.py cobre o item 4.5
 run.py               # inicialização da aplicação
 ```
 
