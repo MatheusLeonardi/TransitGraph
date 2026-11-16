@@ -264,9 +264,3 @@ Os recortes delimitam o alcance e as alternativas de trajeto. No recorte de
 linhas, o Dijkstra usa os pesos por aresta da rede completa. Em outro banco,
 a disponibilidade dos recortes depende da parada e das linhas de referência.
 
-## Integrantes e apresentação
-
-O relatório existente identifica Matheus Leonardi e Richard Peghin da Silva.
-O grupo precisa confirmar a lista completa, os RAs e as contribuições antes
-da entrega. Consulte o [roteiro de 10 minutos](docs/ROTEIRO_APRESENTACAO.md)
-e a [auditoria](docs/AUDITORIA.md).
