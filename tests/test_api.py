@@ -42,6 +42,22 @@ def test_compare_endpoint_requires_both_stops():
     assert "origem e destino" in response.get_json()["error"]
 
 
+def test_dijkstra_endpoint_reports_search_metrics():
+    response = create_client().post(
+        "/api/algorithms/dijkstra",
+        json={"origin": "A", "destination": "D"}
+    )
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["path"] == ["A", "C", "D"]
+    assert data["distance"] == 2
+    assert data["processed_count"] == 4
+    assert data["discovered_count"] == 5
+    assert data["edges_examined"] == 4
+    assert data["execution_time_ms"] >= 0
+
+
 def test_invalid_json_returns_bad_request():
     client = create_client()
     for algorithm in ("bfs", "dfs", "dijkstra", "compare"):

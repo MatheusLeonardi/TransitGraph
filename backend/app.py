@@ -371,7 +371,9 @@ def create_app(graph=None, database_path=None):
             }), 400
 
         try:
+            start = perf_counter()
             result = dijkstra(graph, origin, destination)
+            result["execution_time_ms"] = round((perf_counter() - start) * 1000, 4)
             return jsonify(prepare_algorithm_result(
                 result,
                 graph,

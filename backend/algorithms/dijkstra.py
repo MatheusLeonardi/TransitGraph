@@ -41,6 +41,7 @@ def dijkstra(graph, origin, destination):
     parent = {origin: None}
     pending = [(0.0, origin)]
     visited = []
+    edges_examined = 0
 
     while pending:
         current_time, current = heapq.heappop(pending)
@@ -51,6 +52,7 @@ def dijkstra(graph, origin, destination):
             break
 
         for neighbor in graph.get_neighbors(current):
+            edges_examined += 1
             edge = (current, neighbor)
             weight = graph.edge_weights.get(edge)
             if weight is None:
@@ -91,6 +93,7 @@ def dijkstra(graph, origin, destination):
         "visited_count": len(visited),
         "processed_count": len(visited),
         "discovered_count": len(best_time),
+        "edges_examined": edges_examined,
         "path": path,
         "distance": len(path) - 1 if path else None,
         "found": path is not None,

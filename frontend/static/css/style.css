@@ -552,15 +552,21 @@ button {
     border-radius: 8px;
 }
 
-.algorithm-comparison-card h4 {
+.algorithm-result-title {
     color: #172033;
     font-size: 15px;
     margin-bottom: 5px;
 }
 
-.algorithm-comparison-card p,
 .algorithm-path {
-    margin-bottom: 9px;
+    max-height: 180px;
+    overflow-y: auto;
+    margin-top: 6px;
+    padding: 8px;
+    border: 1px solid #e1e7f0;
+    border-radius: 7px;
+    background: white;
+    font-family: Consolas, monospace;
 }
 
 .visit-order {
@@ -821,7 +827,7 @@ footer {
 
 .instance-form button,
 .algorithm-comparison-card button,
-.visit-order summary {
+.result-details summary {
     cursor: pointer;
 }
 
@@ -829,12 +835,13 @@ footer {
     margin-top: 10px;
 }
 
-.visit-order details {
+.result-details {
     margin-top: 5px;
 }
 
-.visit-order summary {
+.result-details summary {
     font-weight: 600;
+    color: #30415d;
 }
 
 .geometry-debug {

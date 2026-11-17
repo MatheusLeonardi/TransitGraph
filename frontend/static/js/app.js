@@ -29,6 +29,7 @@ let discoveryTreeView = null;
 
 async function requestAlgorithm(algorithm, origin, destination) {
     algorithmRequest?.abort();
+    clearMapResult();
     const request = new AbortController();
     algorithmRequest = request;
 
@@ -50,28 +51,55 @@ async function requestAlgorithm(algorithm, origin, destination) {
 }
 
 
-function appendVisitOrder(container, data) {
+function appendResultSummary(container, data) {
+    const title = document.createElement("h4");
+    title.className = "algorithm-result-title";
+    const status = data.found === null ? "Busca concluída" :
+        data.found ? "Caminho encontrado" : "Destino inalcançável";
+    title.textContent = `${data.algorithm} · ${status}`;
 
+    const metrics = [];
+    if (data.distance != null) {
+        const unit = data.distance === 1 ? "aresta" : "arestas";
+        metrics.push(`${data.distance.toLocaleString("pt-BR")} ${unit} no caminho`);
+    }
+    metrics.push(
+        `${data.processed_count.toLocaleString("pt-BR")} vértices visitados`,
+        `${data.discovered_count.toLocaleString("pt-BR")} vértices descobertos`,
+        `${data.edges_examined.toLocaleString("pt-BR")} arestas examinadas`
+    );
+    const time = data.execution_time_ms.toLocaleString("pt-BR", { maximumFractionDigits: 4 });
+    metrics.push(`${time} ms de execução`);
+    if (data.travel_time_minutes != null) {
+        metrics.push(`${data.travel_time_minutes.toLocaleString("pt-BR")} min de viagem estimada`);
+    }
+
+    const summary = document.createElement("p");
+    summary.textContent = metrics.join(" · ");
+    container.append(title, summary);
+}
+
+
+function appendResultDetails(container, label) {
+    const details = document.createElement("details");
+    details.className = "result-details";
+    const summary = document.createElement("summary");
+    summary.textContent = label;
+    details.append(summary);
+    container.append(details);
+    return details;
+}
+
+
+function appendVisitOrder(container, data) {
     const section = document.createElement("section");
     section.className = "visit-order";
-    const summary = document.createElement("small");
-    const time = data.execution_time_ms === undefined
-        ? ""
-        : ` · ${data.execution_time_ms.toLocaleString("pt-BR")} ms`;
-    const edges = data.edges_examined === undefined
-        ? ""
-        : ` · ${data.edges_examined.toLocaleString("pt-BR")} arestas examinadas`;
-    summary.textContent =
-        `${data.processed_count.toLocaleString("pt-BR")} visitadas · ` +
-        `${data.discovered_count.toLocaleString("pt-BR")} descobertas${edges}${time}`;
-
-    section.append(summary);
     appendOrder(
         section,
         data.algorithm === "DFS" ? "Ordem de descoberta" : "Ordem de visita",
         data.visited_order,
         data.visited_order_total,
-        true
+        data.found === null
     );
     if (data.finish_order) {
         appendOrder(
@@ -83,11 +111,8 @@ function appendVisitOrder(container, data) {
 }
 
 function appendOrder(section, label, order, total, open = false) {
-    const details = document.createElement("details");
+    const details = appendResultDetails(section, `${label} · ${total.toLocaleString("pt-BR")}`);
     details.open = open;
-    const title = document.createElement("summary");
-    title.textContent = `${label} · ${total.toLocaleString("pt-BR")}`;
-    details.append(title);
 
     if (order.length === 0) {
         const empty = document.createElement("small");
@@ -108,37 +133,30 @@ function appendOrder(section, label, order, total, open = false) {
         warning.textContent = `Exibindo os primeiros ${order.length} registros.`;
         details.append(warning);
     }
-    section.append(details);
 }
 
 
 function appendPath(container, data) {
-    if (data.found === false) {
-        const message = document.createElement("p");
-        message.textContent = "Nenhum caminho direcionado para o destino.";
-        container.append(message);
-        return;
-    }
     if (!data.path || data.path.length === 0) return;
 
+    const details = appendResultDetails(container, "Ver caminho completo");
     const path = document.createElement("div");
     path.className = "algorithm-path";
-    path.textContent =
-        `Caminho (${data.distance} arestas): ${data.path.join(" → ")}`;
-    container.appendChild(path);
+    path.tabIndex = 0;
+    path.setAttribute("role", "region");
+    path.setAttribute("aria-label", "Sequência de paradas");
+    path.textContent = data.path.join(" → ");
+    details.append(path);
 }
 
 
 function appendItinerary(container, itinerary) {
     if (!itinerary || itinerary.legs.length === 0) return;
 
-    const section = document.createElement("section");
-    section.className = "itinerary";
-
-    const heading = document.createElement("strong");
-    heading.textContent =
-        `Itinerário · ${itinerary.transfer_count} baldeação(ões)`;
-    section.appendChild(heading);
+    const transfers = itinerary.transfer_count.toLocaleString("pt-BR");
+    const unit = itinerary.transfer_count === 1 ? "baldeação" : "baldeações";
+    const section = appendResultDetails(container, `Itinerário · ${transfers} ${unit}`);
+    section.classList.add("itinerary");
 
     itinerary.legs.forEach((leg, index) => {
         const item = document.createElement("div");
@@ -180,7 +198,6 @@ function appendItinerary(container, itinerary) {
         source.textContent += " Trechos tracejados indicam traçado incerto ou ligação aproximada.";
     }
     section.appendChild(source);
-    container.appendChild(section);
 }
 
 
@@ -252,7 +269,7 @@ async function loadStats() {
 // --------------------------------------------------
 
 async function loadMapStops() {
-    if (!map || reachability) return;
+    if (!map?.hasLayer(stopLayer)) return;
 
     mapRequest?.abort();
     const request = new AbortController();
@@ -561,28 +578,13 @@ async function executeBFS() {
             throw new Error(data.error || "Erro ao executar BFS.");
         }
 
-        if (!data.found) {
-            resultBox.textContent =
-                "Não foi encontrado um caminho entre essas paradas.";
-            appendVisitOrder(resultBox, data);
-            clearMapResult();
-            return;
-        }
-
         resultBox.replaceChildren();
-
-        const title = document.createElement("strong");
-        title.textContent = "Caminho encontrado!";
-
-        const distance = document.createElement("div");
-        distance.textContent = `Distância: ${data.distance} arestas`;
-
-        resultBox.append(title, distance);
+        appendResultSummary(resultBox, data);
         appendPath(resultBox, data);
         appendItinerary(resultBox, data.itinerary);
         appendVisitOrder(resultBox, data);
 
-        drawItinerary(data.itinerary, data.path_stops);
+        if (data.found) drawItinerary(data.itinerary, data.path_stops);
 
     } catch (error) {
         resultBox.textContent = error.message;
@@ -675,20 +677,25 @@ geometryDebug.querySelectorAll("input[type=checkbox]").forEach(input => {
 });
 
 function clearMapResult() {
-    if (discoveryTreeView) {
-        discoveryTreeView.destroy();
-        discoveryTreeView = null;
-        document.getElementById("dfs-tree-section").hidden = true;
-    }
+    discoveryTreeView?.destroy();
+    discoveryTreeView = null;
+    document.getElementById("dfs-tree-section").hidden = true;
+    document.getElementById("dfs-tree-info").textContent = "";
+
     if (reachability) {
         reachability.canvas.remove();
         reachability.originMarker?.remove();
         reachability = null;
-        document.getElementById("reachability-legend").hidden = true;
-        document.getElementById("map-footer").hidden = false;
-        geometryDebug.hidden = false;
-        loadMapStops();
     }
+    document.getElementById("reachability-legend").hidden = true;
+
+    mapRequest?.abort();
+    stopLayer?.clearLayers().remove();
+    document.getElementById("map-footer").hidden = true;
+    searchMarker?.remove();
+    searchMarker = null;
+
+    geometryDebug.hidden = true;
     geometryEntries = [];
     document.getElementById("geometry-debug-instruction").hidden = false;
     geometrySelect.replaceChildren();
@@ -696,10 +703,8 @@ function clearMapResult() {
     geometryFields.textContent = "";
     geometryLayers?.remove();
     geometryLayers = null;
-    if (pathLayer) {
-        map.removeLayer(pathLayer);
-        pathLayer = null;
-    }
+    pathLayer?.remove();
+    pathLayer = null;
 }
 
 
@@ -746,13 +751,6 @@ function renderReachability() {
 function drawReachability(data) {
     if (!map) return;
 
-    mapRequest?.abort();
-    stopLayer.clearLayers();
-    if (searchMarker) {
-        searchMarker.remove();
-        searchMarker = null;
-    }
-
     const canvas = L.DomUtil.create(
         "canvas", "reachability-layer leaflet-zoom-hide", map.getPanes().overlayPane
     );
@@ -763,8 +761,6 @@ function drawReachability(data) {
     }).addTo(map).bindTooltip("Origem", { direction: "top", offset: [0, -9], permanent: true }) : null;
     reachability = { canvas, originMarker, data };
 
-    document.getElementById("map-footer").hidden = true;
-    geometryDebug.hidden = true;
     document.getElementById("reachability-missing-origin").hidden = Boolean(data.origin);
     document.getElementById("reachability-legend").hidden = false;
     if (data.reachable.length) {
@@ -807,11 +803,9 @@ function addDirectionArrows(geometry, color, group) {
 }
 
 function drawItinerary(itinerary, stops) {
-
-    clearMapResult();
-
     if (!map || !stops || stops.length === 0) return;
 
+    geometryDebug.hidden = false;
     const colors = ["#e94b64", "#2878ed", "#f59e0b", "#16a085", "#8b5cf6"];
     pathLayer = L.featureGroup().addTo(map);
     let directionArrow = null;
@@ -941,27 +935,18 @@ async function executeDFS() {
             throw new Error(data.error || "Erro ao executar DFS.");
         }
 
-        clearMapResult();
-
         resultBox.replaceChildren();
-
-        const title = document.createElement("strong");
-        title.textContent = "DFS concluída!";
-
-        const description = document.createElement("div");
-        if (data.destination) {
-            description.textContent = data.found
-                ? "A DFS encontrou um caminho seguindo a ordem dos ramos."
-                : "A busca esgotou as conexões alcançáveis a partir da origem.";
-        } else {
+        appendResultSummary(resultBox, data);
+        if (!data.destination) {
+            const description = document.createElement("p");
             const reachable = data.discovered_count;
             const total = data.network_size;
             description.textContent =
                 `${reachable.toLocaleString("pt-BR")} de ${total.toLocaleString("pt-BR")} paradas alcançáveis (inclui a origem). ` +
                 `${(total - reachable).toLocaleString("pt-BR")} ficam fora da cobertura direcionada desta origem.`;
+            resultBox.append(description);
         }
 
-        resultBox.append(title, description);
         appendPath(resultBox, data);
         appendItinerary(resultBox, data.itinerary);
         appendVisitOrder(resultBox, data);
@@ -1011,33 +996,28 @@ async function executeWeightedSearch() {
     }
 
     resultBox.textContent = "Calculando a rota de menor tempo...";
-    clearMapResult();
     try {
         const result = await requestAlgorithm("dijkstra", origin, destination);
         if (!result) return;
         const { response, data } = result;
         if (!response.ok) throw new Error(data.error || "Erro no Dijkstra.");
-        if (!data.found) {
-            resultBox.textContent = "Não foi encontrada uma rota ponderada entre as paradas.";
-            return;
-        }
-
         resultBox.replaceChildren();
-        const title = document.createElement("strong");
-        title.textContent = "Rota de menor tempo estimado encontrada";
-        const duration = document.createElement("div");
-        duration.textContent = `Tempo de viagem nos ônibus: ${data.travel_time_minutes.toLocaleString("pt-BR")} min`;
-        const source = document.createElement("small");
+        appendResultSummary(resultBox, data);
+        appendPath(resultBox, data);
+        appendItinerary(resultBox, data.itinerary);
+        appendVisitOrder(resultBox, data);
+        if (!data.found) return;
+
+        const weights = appendResultDetails(resultBox, "Detalhes da estimativa de viagem");
+        const source = document.createElement("p");
         source.textContent = `Pesos: ${data.weight_source}. Soma dos tempos entre paradas; não inclui espera de baldeação nem trânsito.`;
-        resultBox.append(title, duration, source);
+        weights.append(source);
         if (data.estimated_edges_used > 0) {
             const estimate = document.createElement("small");
             estimate.className = "weight-estimate-note";
             estimate.textContent = `${data.estimated_edges_used} trecho(s) da rota não tinham horário GTFS e receberam estimativa por distância reta a 18 km/h.`;
-            resultBox.appendChild(estimate);
+            weights.append(estimate);
         }
-        appendPath(resultBox, data);
-        appendItinerary(resultBox, data.itinerary);
         drawItinerary(data.itinerary, data.path_stops);
     } catch (error) {
         resultBox.textContent = error.message;
@@ -1083,22 +1063,21 @@ async function compareAlgorithms() {
             const card = document.createElement("article");
             card.className = "algorithm-comparison-card";
 
-            const title = document.createElement("h4");
-            title.textContent = result.algorithm;
-
-            const explanation = document.createElement("p");
-            explanation.textContent =
-                data.explanation[result.algorithm.toLowerCase()];
-
-            card.append(title, explanation);
+            appendResultSummary(card, result);
             appendPath(card, result);
             appendItinerary(card, result.itinerary);
             appendVisitOrder(card, result);
+            const method = appendResultDetails(card, "Como a busca funciona");
+            const explanation = document.createElement("p");
+            explanation.textContent =
+                data.explanation[result.algorithm.toLowerCase()];
+            method.append(explanation);
             if (result.found && map) {
                 const showRoute = document.createElement("button");
                 showRoute.type = "button";
                 showRoute.textContent = `Ver caminho ${result.algorithm} no mapa`;
                 showRoute.addEventListener("click", () => {
+                    clearMapResult();
                     drawItinerary(result.itinerary, result.path_stops);
                 });
                 card.append(showRoute);
@@ -1217,11 +1196,9 @@ document.getElementById("reverse-stops-button")
 
 document.getElementById("clear-stops-button")
     .addEventListener("click", () => {
-        if (algorithmRequest) {
-            algorithmRequest.abort();
-            document.getElementById("algorithm-result").textContent =
-                "Selecione as paradas para consultar a ordem de visita e comparar o comportamento dos algoritmos.";
-        }
+        algorithmRequest?.abort();
+        document.getElementById("algorithm-result").textContent =
+            "Selecione as paradas para consultar a ordem de visita e comparar o comportamento dos algoritmos.";
         ["origin", "destination"].forEach(field => {
             const input = document.getElementById(field);
             input.value = "";
@@ -1230,6 +1207,12 @@ document.getElementById("clear-stops-button")
             hideStopSuggestions(field);
         });
         clearMapResult();
+        if (map) {
+            stopLayer.addTo(map);
+            document.getElementById("map-footer").hidden = false;
+            geometryDebug.hidden = false;
+            loadMapStops();
+        }
     });
 
 map?.on("moveend", () => {
