@@ -23,6 +23,31 @@ if (map) {
 let pathLayer = null;
 let searchMarker = null;
 let mapRequest = null;
+let algorithmRequest = null;
+let reachability = null;
+let discoveryTreeView = null;
+
+async function requestAlgorithm(algorithm, origin, destination) {
+    algorithmRequest?.abort();
+    const request = new AbortController();
+    algorithmRequest = request;
+
+    try {
+        const response = await apiFetch(`/api/algorithms/${algorithm}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ origin, destination }),
+            signal: request.signal
+        });
+        const data = await response.json();
+        if (!request.signal.aborted) return { response, data };
+    } catch (error) {
+        if (!request.signal.aborted) throw error;
+    } finally {
+        if (algorithmRequest === request) algorithmRequest = null;
+    }
+    return null;
+}
 
 
 function appendVisitOrder(container, data) {
@@ -227,14 +252,11 @@ async function loadStats() {
 // --------------------------------------------------
 
 async function loadMapStops() {
-    if (!map) return;
+    if (!map || reachability) return;
 
-    if (mapRequest) {
-        mapRequest.abort();
-    }
-
-    mapRequest = new AbortController();
-
+    mapRequest?.abort();
+    const request = new AbortController();
+    mapRequest = request;
     const bounds = map.getBounds();
 
     const params = new URLSearchParams({
@@ -248,7 +270,7 @@ async function loadMapStops() {
     try {
         const response = await apiFetch(
             `/api/stops/map?${params}`,
-            { signal: mapRequest.signal }
+            { signal: request.signal }
         );
 
         if (!response.ok) {
@@ -256,6 +278,7 @@ async function loadMapStops() {
         }
 
         const data = await response.json();
+        if (request.signal.aborted) return;
 
         stopLayer.clearLayers();
 
@@ -530,15 +553,9 @@ async function executeBFS() {
     resultBox.textContent = "Executando BFS...";
 
     try {
-        const response = await apiFetch("/api/algorithms/bfs", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ origin, destination })
-        });
-
-        const data = await response.json();
+        const result = await requestAlgorithm("bfs", origin, destination);
+        if (!result) return;
+        const { response, data } = result;
 
         if (!response.ok) {
             throw new Error(data.error || "Erro ao executar BFS.");
@@ -548,7 +565,7 @@ async function executeBFS() {
             resultBox.textContent =
                 "Não foi encontrado um caminho entre essas paradas.";
             appendVisitOrder(resultBox, data);
-            clearPath();
+            clearMapResult();
             return;
         }
 
@@ -657,7 +674,21 @@ geometryDebug.querySelectorAll("input[type=checkbox]").forEach(input => {
     input.addEventListener("change", renderGeometryDebug);
 });
 
-function clearPath() {
+function clearMapResult() {
+    if (discoveryTreeView) {
+        discoveryTreeView.destroy();
+        discoveryTreeView = null;
+        document.getElementById("dfs-tree-section").hidden = true;
+    }
+    if (reachability) {
+        reachability.canvas.remove();
+        reachability.originMarker?.remove();
+        reachability = null;
+        document.getElementById("reachability-legend").hidden = true;
+        document.getElementById("map-footer").hidden = false;
+        geometryDebug.hidden = false;
+        loadMapStops();
+    }
     geometryEntries = [];
     document.getElementById("geometry-debug-instruction").hidden = false;
     geometrySelect.replaceChildren();
@@ -669,6 +700,79 @@ function clearPath() {
         map.removeLayer(pathLayer);
         pathLayer = null;
     }
+}
+
+
+function renderReachability() {
+    const { canvas, data } = reachability;
+    const size = map.getSize();
+    const scale = window.devicePixelRatio || 1;
+    canvas.width = Math.round(size.x * scale);
+    canvas.height = Math.round(size.y * scale);
+    canvas.style.width = `${size.x}px`;
+    canvas.style.height = `${size.y}px`;
+    L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+
+    const context = canvas.getContext("2d");
+    context.scale(scale, scale);
+    const bounds = map.getBounds().pad(0.01);
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const zoom = map.getZoom();
+    const topLeft = map.getPixelBounds().min;
+
+    // Draw one batch per color. The layer has no per-stop DOM nodes or events.
+    for (const [points, color, radius] of [
+        [data.unreachable, "#687384", zoom < 12 ? 1.5 : 2],
+        [data.reachable, "#2878ed", zoom < 12 ? 1.75 : 2.5]
+    ]) {
+        context.fillStyle = color;
+        context.beginPath();
+        for (const [lat, lng] of points) {
+            if (lat < south || lat > north || lng < west || lng > east) continue;
+            const projected = map.project([lat, lng], zoom);
+            const x = Math.round(projected.x) - topLeft.x;
+            const y = Math.round(projected.y) - topLeft.y;
+            context.moveTo(x + radius, y);
+            context.arc(x, y, radius, 0, 2 * Math.PI);
+        }
+        context.fill();
+    }
+}
+
+
+function drawReachability(data) {
+    if (!map) return;
+
+    mapRequest?.abort();
+    stopLayer.clearLayers();
+    if (searchMarker) {
+        searchMarker.remove();
+        searchMarker = null;
+    }
+
+    const canvas = L.DomUtil.create(
+        "canvas", "reachability-layer leaflet-zoom-hide", map.getPanes().overlayPane
+    );
+    canvas.setAttribute("aria-hidden", "true");
+    const originMarker = data.origin ? L.marker(data.origin, {
+        icon: L.divIcon({ className: "reachability-origin-marker", iconSize: [16, 16] }),
+        title: "Parada de origem"
+    }).addTo(map).bindTooltip("Origem", { direction: "top", offset: [0, -9], permanent: true }) : null;
+    reachability = { canvas, originMarker, data };
+
+    document.getElementById("map-footer").hidden = true;
+    geometryDebug.hidden = true;
+    document.getElementById("reachability-missing-origin").hidden = Boolean(data.origin);
+    document.getElementById("reachability-legend").hidden = false;
+    if (data.reachable.length) {
+        map.fitBounds(L.latLngBounds(data.reachable), {
+            padding: [35, 35], maxZoom: 16, animate: false
+        });
+    }
+    renderReachability();
 }
 
 
@@ -704,7 +808,7 @@ function addDirectionArrows(geometry, color, group) {
 
 function drawItinerary(itinerary, stops) {
 
-    clearPath();
+    clearMapResult();
 
     if (!map || !stops || stops.length === 0) return;
 
@@ -801,7 +905,7 @@ function drawItinerary(itinerary, stops) {
     });
 
     const bounds = pathLayer.getBounds();
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [45, 45] });
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [45, 45], animate: false });
 }
 
 
@@ -829,24 +933,15 @@ async function executeDFS() {
     resultBox.textContent = "Executando DFS...";
 
     try {
-        const response = await apiFetch("/api/algorithms/dfs", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                origin,
-                destination: destination || null
-            })
-        });
-
-        const data = await response.json();
+        const result = await requestAlgorithm("dfs", origin, destination || null);
+        if (!result) return;
+        const { response, data } = result;
 
         if (!response.ok) {
             throw new Error(data.error || "Erro ao executar DFS.");
         }
 
-        clearPath();
+        clearMapResult();
 
         resultBox.replaceChildren();
 
@@ -871,7 +966,28 @@ async function executeDFS() {
         appendItinerary(resultBox, data.itinerary);
         appendVisitOrder(resultBox, data);
 
-        if (data.path) {
+        if (data.reachability) {
+            const views = document.createElement("div");
+            views.className = "dfs-view-actions";
+            if (map) {
+                drawReachability(data.reachability);
+                const viewMap = document.createElement("a");
+                viewMap.href = "#map-section";
+                viewMap.textContent = "Ver cobertura no mapa";
+                views.append(viewMap);
+            }
+            if (window.cytoscape && data.discovery_tree) {
+                const viewTree = document.createElement("button");
+                viewTree.type = "button";
+                viewTree.className = "secondary-button";
+                viewTree.textContent = "Ver árvore de descoberta";
+                viewTree.addEventListener("click", () => {
+                    showDiscoveryTree(data.discovery_tree, data.origin);
+                });
+                views.append(viewTree);
+            }
+            if (views.childElementCount) resultBox.append(views);
+        } else if (data.path) {
             drawItinerary(data.itinerary, data.path_stops);
         }
 
@@ -895,14 +1011,11 @@ async function executeWeightedSearch() {
     }
 
     resultBox.textContent = "Calculando a rota de menor tempo...";
-    clearPath();
+    clearMapResult();
     try {
-        const response = await apiFetch("/api/algorithms/dijkstra", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ origin, destination })
-        });
-        const data = await response.json();
+        const result = await requestAlgorithm("dijkstra", origin, destination);
+        if (!result) return;
+        const { response, data } = result;
         if (!response.ok) throw new Error(data.error || "Erro no Dijkstra.");
         if (!data.found) {
             resultBox.textContent = "Não foi encontrada uma rota ponderada entre as paradas.";
@@ -953,13 +1066,9 @@ async function compareAlgorithms() {
     resultBox.textContent = "Comparando BFS e DFS...";
 
     try {
-        const response = await apiFetch("/api/algorithms/compare", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ origin, destination })
-        });
-
-        const data = await response.json();
+        const result = await requestAlgorithm("compare", origin, destination);
+        if (!result) return;
+        const { response, data } = result;
 
         if (!response.ok) {
             throw new Error(data.error || "Erro ao comparar algoritmos.");
@@ -1108,6 +1217,11 @@ document.getElementById("reverse-stops-button")
 
 document.getElementById("clear-stops-button")
     .addEventListener("click", () => {
+        if (algorithmRequest) {
+            algorithmRequest.abort();
+            document.getElementById("algorithm-result").textContent =
+                "Selecione as paradas para consultar a ordem de visita e comparar o comportamento dos algoritmos.";
+        }
         ["origin", "destination"].forEach(field => {
             const input = document.getElementById(field);
             input.value = "";
@@ -1115,10 +1229,13 @@ document.getElementById("clear-stops-button")
             document.getElementById(`${field}-name`).textContent = "";
             hideStopSuggestions(field);
         });
-        clearPath();
+        clearMapResult();
     });
 
-map?.on("moveend", loadMapStops);
+map?.on("moveend", () => {
+    if (reachability) renderReachability();
+    else loadMapStops();
+});
 
 
 // --------------------------------------------------
@@ -1136,15 +1253,9 @@ loadMapStops();
 
 let cy = null;
 
-function initializeGraph() {
-
-    if (!window.cytoscape) {
-        document.getElementById("graph-info").textContent = "Visualização do grafo indisponível.";
-        document.getElementById("load-graph-button").disabled = true;
-        return;
-    }
-    cy = cytoscape({
-        container: document.getElementById("cy"),
+function createGraphView(container) {
+    return cytoscape({
+        container,
 
         elements: [],
 
@@ -1167,7 +1278,7 @@ function initializeGraph() {
                 }
             },
             {
-                selector: "node[isOrigin]",
+                selector: "node[?isOrigin]",
                 style: {
                     "background-color": "#e94b64",
                     "width": 34,
@@ -1206,6 +1317,43 @@ function initializeGraph() {
         maxZoom: 3,
         wheelSensitivity: 0.2
     });
+}
+
+
+function showDiscoveryTree(tree, origin) {
+    const section = document.getElementById("dfs-tree-section");
+    section.hidden = false;
+    if (!discoveryTreeView) {
+        discoveryTreeView = createGraphView(document.getElementById("dfs-tree-graph"));
+        discoveryTreeView.add(tree.elements);
+        discoveryTreeView.layout({
+            name: "breadthfirst",
+            directed: true,
+            roots: discoveryTreeView.getElementById(origin),
+            spacingFactor: 1.5,
+            padding: 35
+        }).run();
+    }
+
+    const displayed = tree.edge_count.toLocaleString("pt-BR");
+    const total = tree.total_edges.toLocaleString("pt-BR");
+    const info = document.getElementById("dfs-tree-info");
+    info.textContent = tree.edge_count < tree.total_edges
+        ? `Origem ${origin} · ${displayed} de ${total} arestas de descoberta. Recorte de até ${tree.depth_limit} níveis a partir da origem e até ${tree.edge_limit} arestas.`
+        : `Origem ${origin} · árvore completa com ${displayed} ${tree.edge_count === 1 ? "aresta de descoberta" : "arestas de descoberta"}.`;
+    section.scrollIntoView({ block: "start" });
+    document.getElementById("dfs-tree-title").focus({ preventScroll: true });
+}
+
+
+function initializeGraph() {
+    if (!window.cytoscape) {
+        document.getElementById("graph-info").textContent = "Visualização do grafo indisponível.";
+        document.getElementById("load-graph-button").disabled = true;
+        return;
+    }
+
+    cy = createGraphView(document.getElementById("cy"));
 
     cy.on("tap", "node", event => {
 

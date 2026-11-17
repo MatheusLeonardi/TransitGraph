@@ -250,6 +250,10 @@ body {
     margin-top: 13px;
 }
 
+.map-footer[hidden] {
+    display: none;
+}
+
 .legend-stop {
     display: inline-block;
     width: 9px;
@@ -257,6 +261,60 @@ body {
     background: #2878ed;
     border-radius: 50%;
     margin-right: 5px;
+}
+
+.reachability-legend {
+    color: #34445c;
+    font-size: 13px;
+    margin: 12px 0;
+}
+
+.reachability-legend ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    list-style: none;
+    padding: 0;
+    margin: 6px 0;
+}
+
+.reachability-legend p {
+    margin: 4px 0;
+}
+
+.reachability-origin {
+    background: #c2410c;
+}
+
+.reachability-unreachable {
+    background: #687384;
+}
+
+.reachability-origin-marker {
+    background: #c2410c;
+    border: 2px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #7c2d12;
+}
+
+.reachability-layer {
+    pointer-events: none;
+}
+
+.dfs-view-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 10px;
+}
+
+.dfs-view-actions button {
+    border: 0;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font: inherit;
+    cursor: pointer;
 }
 
 .right-column {
@@ -682,7 +740,7 @@ footer {
     margin-bottom: 12px;
 }
 
-#cy {
+.graph-canvas {
     width: 100%;
     height: 520px;
     border: 1px solid #e8ecf2;
@@ -728,7 +786,7 @@ footer {
         max-width: none;
     }
 
-    #cy {
+    .graph-canvas {
         height: 400px;
     }
 }

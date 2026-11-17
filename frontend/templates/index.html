@@ -10,7 +10,7 @@
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
     <link rel="stylesheet"
-          href="{{ url_for('static', filename='css/style.css', v='20261114-4') }}">
+          href="{{ url_for('static', filename='css/style.css', v='20261116-2') }}">
 </head>
 
 <body data-instance="{{ active_instance }}">
@@ -119,6 +119,16 @@
                 </div>
 
                 <div id="map"></div>
+                <div id="reachability-legend" class="reachability-legend" hidden>
+                    <strong>Alcance direcionado (DFS)</strong>
+                    <ul>
+                        <li><i class="legend-stop reachability-origin" aria-hidden="true"></i> Origem</li>
+                        <li><i class="legend-stop" aria-hidden="true"></i> Paradas alcançáveis</li>
+                        <li><i class="legend-stop reachability-unreachable" aria-hidden="true"></i> Fora do alcance</li>
+                    </ul>
+                    <p>Conexões dirigidas de ônibus na instância selecionada. As paradas alcançáveis podem exigir troca de linha. A análise exclui deslocamentos a pé.</p>
+                    <p id="reachability-missing-origin" hidden>A origem está sem coordenadas no mapa.</p>
+                </div>
                 <details id="geometry-debug" class="geometry-debug">
                     <summary>Diagnóstico geográfico</summary>
                     <p id="geometry-debug-instruction">Calcule um trajeto e selecione uma conexão.</p>
@@ -130,7 +140,7 @@
                     <label><input type="checkbox" id="geometry-show-final" checked> Traçado exibido (preto)</label>
                 </details>
 
-                <div class="map-footer">
+                <div id="map-footer" class="map-footer">
                     <span><i class="legend-stop"></i> Paradas de ônibus</span>
                     <span id="map-count">Carregando paradas...</span>
                 </div>
@@ -228,7 +238,22 @@
 
         </section>
 
-        
+        <section id="dfs-tree-section" class="panel graph-panel" aria-labelledby="dfs-tree-title" hidden>
+            <div class="panel-header">
+                <div>
+                    <h3 id="dfs-tree-title" tabindex="-1">Árvore de descoberta DFS</h3>
+                    <p>As setas ligam cada predecessor à parada que ele descobriu. São conexões do grafo de ônibus, exibidas de forma esquemática.</p>
+                </div>
+            </div>
+            <div id="dfs-tree-info" class="graph-info"></div>
+            <div id="dfs-tree-graph" class="graph-canvas"></div>
+            <div class="graph-legend">
+                <span><i class="legend-origin" aria-hidden="true"></i> Parada de origem</span>
+                <span><i class="legend-node" aria-hidden="true"></i> Parada descoberta</span>
+                <span><i class="legend-edge" aria-hidden="true"></i> Sentido da descoberta</span>
+            </div>
+        </section>
+
 <section class="panel graph-panel">
 
     <div class="panel-header">
@@ -269,7 +294,7 @@
         Informe uma parada para visualizar suas conexões.
     </div>
 
-    <div id="cy"></div>
+    <div id="cy" class="graph-canvas"></div>
 
     <div class="graph-legend">
         <span><i class="legend-origin"></i> Parada de origem</span>
@@ -303,7 +328,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
-    <script src="{{ url_for('static', filename='js/app.js', v='20261114-5') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js', v='20261116-2') }}"></script>
 
 </body>
 </html>

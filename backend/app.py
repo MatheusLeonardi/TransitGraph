@@ -18,6 +18,8 @@ from backend.services.road_matching_service import refine_itinerary_geometry
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = PROJECT_DIR / "data" / "processed" / "transitgraph.db"
 VISIT_ORDER_LIMIT = 200
+DFS_TREE_DEPTH_LIMIT = 5
+DFS_TREE_EDGE_LIMIT = 80
 
 
 def prepare_algorithm_result(result, graph, database_path=None):
@@ -55,6 +57,61 @@ def prepare_algorithm_result(result, graph, database_path=None):
     )
 
     return response
+
+
+def prepare_reachability(graph, origin, reachable_stops):
+    reachable_ids = set(reachable_stops)
+    coverage = {"origin": None, "reachable": [], "unreachable": []}
+    for stop_id, stop in graph.stops.items():
+        latitude, longitude = stop["latitude"], stop["longitude"]
+        if latitude is None or longitude is None:
+            continue
+        point = [latitude, longitude]
+        category = "reachable" if stop_id in reachable_ids else "unreachable"
+        coverage[category].append(point)
+        if stop_id == origin:
+            coverage["origin"] = point
+    return coverage
+
+
+def prepare_dfs_tree(graph, result, show_full_tree):
+    """Recover the DFS parent links from its full discovery and finish orders."""
+    visit_order = result["visited_order"]
+    finish_position = {
+        stop_id: position for position, stop_id in enumerate(result["finish_order"])
+    }
+    ancestors = []
+    nodes = []
+    edges = []
+
+    for stop_id in visit_order:
+        # An earlier vertex is an ancestor only if it finishes after this one.
+        while ancestors and finish_position[ancestors[-1]] < finish_position[stop_id]:
+            ancestors.pop()
+        parent = ancestors[-1] if ancestors else None
+        depth = len(ancestors)
+        ancestors.append(stop_id)
+        if not show_full_tree and depth > DFS_TREE_DEPTH_LIMIT:
+            continue
+
+        stop = graph.get_stop(stop_id)
+        nodes.append({"data": {
+            "id": stop_id,
+            "label": stop["name"] or stop_id,
+            "isOrigin": parent is None
+        }})
+        if parent is not None:
+            edges.append({"data": {"source": parent, "target": stop_id}})
+        if not show_full_tree and len(edges) == DFS_TREE_EDGE_LIMIT:
+            break
+
+    return {
+        "elements": nodes + edges,
+        "edge_count": len(edges),
+        "total_edges": len(visit_order) - 1,
+        "depth_limit": None if show_full_tree else DFS_TREE_DEPTH_LIMIT,
+        "edge_limit": None if show_full_tree else DFS_TREE_EDGE_LIMIT
+    }
 
 
 def read_algorithm_input():
@@ -287,11 +344,15 @@ def create_app(graph=None, database_path=None):
             result["execution_time_ms"] = round((perf_counter() - start) * 1000, 4)
             result["network_size"] = graph.vertex_count()
 
-            return jsonify(prepare_algorithm_result(
-                result,
-                graph,
-                database_path
-            ))
+            response = prepare_algorithm_result(result, graph, database_path)
+            if not destination:
+                response["reachability"] = prepare_reachability(
+                    graph, origin, result["reachable_stops"]
+                )
+                response["discovery_tree"] = prepare_dfs_tree(
+                    graph, result, show_full_tree=g.instance == "local"
+                )
+            return jsonify(response)
 
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
